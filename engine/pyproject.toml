@@ -42,6 +42,7 @@ packages = ["src/llmscan_engine"]
 [tool.ruff]
 line-length = 88
 target-version = "py311"
+exclude = ["migrations/"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
