@@ -1,19 +1,32 @@
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
-.venv/
 *.egg-info/
 dist/
+.venv/
 .ruff_cache/
+
+# ── Node / Dashboard ──────────────────────────────────────────────────────────
 node_modules/
 dashboard/dist/
+
+# ── Secrets & Config ──────────────────────────────────────────────────────────
 .env
 *.env
+
+# ── Database ──────────────────────────────────────────────────────────────────
 *.db
 *.sqlite
+
+# ── Scan Output & Evidence ────────────────────────────────────────────────────
 evidence/
 *.ndjson
 reports/output/
-.DS_Store
-Thumbs.db
+
+# ── Claude (local-only, never push) ──────────────────────────────────────────
 CLAUDE.md
 .claude/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
