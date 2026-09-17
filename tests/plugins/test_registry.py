@@ -1,5 +1,6 @@
 import pytest
 
+from llmscan_engine.plugins.builtin.llm01_direct import LLM01DirectInjection
 from llmscan_engine.plugins.registry import (
     all_plugins,
     clear_registry,
@@ -7,7 +8,6 @@ from llmscan_engine.plugins.registry import (
     init_registry,
     register_plugin,
 )
-from llmscan_engine.plugins.builtin.llm01_direct import LLM01DirectInjection
 
 
 @pytest.fixture(autouse=True)

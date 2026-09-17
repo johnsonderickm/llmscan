@@ -1,7 +1,6 @@
 import uuid
 from unittest.mock import AsyncMock, patch
 
-import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -10,7 +9,7 @@ from sqlmodel import SQLModel
 
 from llmscan_engine.api.main import create_app
 from llmscan_engine.db.database import get_session
-from llmscan_engine.db.models import Scan, ScanStatus
+from llmscan_engine.db.models import ScanStatus
 from llmscan_engine.plugins.registry import clear_registry, init_registry
 
 _TEST_DB = "sqlite+aiosqlite:///:memory:"

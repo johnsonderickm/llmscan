@@ -3,8 +3,8 @@ import pytest
 from llmscan_engine.core.connector import Provider, TargetProfile
 from llmscan_engine.db.models import FailureMode
 from llmscan_engine.plugins.builtin.llm02_exfil import (
-    LLM02SystemPromptExfil,
     _TEMPLATES,
+    LLM02SystemPromptExfil,
 )
 from llmscan_engine.plugins.schemas import Payload
 

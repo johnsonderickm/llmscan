@@ -3,10 +3,10 @@ import pytest
 from llmscan_engine.core.connector import Provider, TargetProfile
 from llmscan_engine.db.models import FailureMode
 from llmscan_engine.plugins.builtin.llm04_dos import (
-    LLM04Dos,
     _LONG_RESPONSE_CHARS,
     _REPETITION_RATIO_THRESHOLD,
     _TEMPLATES,
+    LLM04Dos,
     _repetition_ratio,
 )
 from llmscan_engine.plugins.schemas import Payload

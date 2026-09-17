@@ -15,9 +15,15 @@ router = APIRouter(tags=["findings"])
 @router.get("/scans/{scan_id}/findings", response_model=List[FindingRead])
 async def get_findings(
     scan_id: uuid.UUID,
-    owasp_id: Optional[str] = Query(None, description="Filter by OWASP category, e.g. LLM01"),
-    failure_mode: Optional[FailureMode] = Query(None, description="Filter by failure mode"),
-    min_score: Optional[float] = Query(None, ge=0.0, le=10.0, description="Minimum risk score"),
+    owasp_id: Optional[str] = Query(
+        None, description="Filter by OWASP category, e.g. LLM01"
+    ),
+    failure_mode: Optional[FailureMode] = Query(
+        None, description="Filter by failure mode"
+    ),
+    min_score: Optional[float] = Query(
+        None, ge=0.0, le=10.0, description="Minimum risk score"
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> List[FindingRead]:
     """List findings for a scan with optional filters, ordered by score descending."""
@@ -34,5 +40,5 @@ async def get_findings(
         stmt = stmt.where(Finding.score >= min_score)
     stmt = stmt.order_by(Finding.score.desc())  # type: ignore[arg-type]
 
-    result = await session.exec(stmt)
-    return [FindingRead.model_validate(f) for f in result.all()]
+    result = await session.execute(stmt)
+    return [FindingRead.model_validate(f) for f in result.scalars().all()]

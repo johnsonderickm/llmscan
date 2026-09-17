@@ -2,7 +2,7 @@ import pytest
 
 from llmscan_engine.core.connector import Provider, TargetProfile
 from llmscan_engine.db.models import FailureMode
-from llmscan_engine.plugins.builtin.llm09_theft import LLM09ModelTheft, _TEMPLATES
+from llmscan_engine.plugins.builtin.llm09_theft import _TEMPLATES, LLM09ModelTheft
 from llmscan_engine.plugins.schemas import Payload
 
 

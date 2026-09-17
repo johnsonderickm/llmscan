@@ -3,8 +3,6 @@ import types
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 from llmscan_engine.plugins.garak_loader import load_garak_probes, load_yaml_templates
 
 _YAML_DIR = (

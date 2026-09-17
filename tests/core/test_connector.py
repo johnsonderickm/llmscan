@@ -1,4 +1,3 @@
-import pytest
 
 from llmscan_engine.core.connector import (
     Fingerprinter,

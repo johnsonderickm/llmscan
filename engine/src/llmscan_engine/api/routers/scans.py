@@ -19,7 +19,7 @@ async def create_scan(
     body: ScanCreate,
     session: AsyncSession = Depends(get_session),
 ) -> ScanRead:
-    """Start a new scan. Returns immediately with scan_id; scan runs as a background task."""
+    """Start a new scan; returns immediately and runs the scan as a background task."""
     scan = Scan(
         target_url=body.target_url,
         profile=body.profile,
@@ -47,10 +47,10 @@ async def list_scans(
     session: AsyncSession = Depends(get_session),
 ) -> List[ScanRead]:
     """List all scans, newest first."""
-    result = await session.exec(
+    result = await session.execute(
         select(Scan).order_by(Scan.started_at.desc())  # type: ignore[arg-type]
     )
-    return [ScanRead.model_validate(s) for s in result.all()]
+    return [ScanRead.model_validate(s) for s in result.scalars().all()]
 
 
 @router.get("/scans/{scan_id}", response_model=ScanRead)

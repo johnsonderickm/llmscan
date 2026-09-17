@@ -32,12 +32,12 @@ async def ws_scan_feed(
         return
 
     # Replay all existing events
-    result = await session.exec(
+    result = await session.execute(
         select(ScanEvent)
         .where(ScanEvent.scan_id == scan_uuid)
         .order_by(ScanEvent.created_at)
     )
-    events = result.all()
+    events = result.scalars().all()
     offset = len(events)
 
     for event in events:
@@ -64,13 +64,13 @@ async def ws_scan_feed(
         while True:
             await asyncio.sleep(0.5)
 
-            new_result = await session.exec(
+            new_result = await session.execute(
                 select(ScanEvent)
                 .where(ScanEvent.scan_id == scan_uuid)
                 .order_by(ScanEvent.created_at)
                 .offset(offset)
             )
-            new_events = new_result.all()
+            new_events = new_result.scalars().all()
 
             for event in new_events:
                 await websocket.send_json({
@@ -82,11 +82,14 @@ async def ws_scan_feed(
                 offset += 1
 
             # Re-fetch scan to check status (always goes to DB via fresh select)
-            status_result = await session.exec(
+            status_result = await session.execute(
                 select(Scan).where(Scan.id == scan_uuid)
             )
-            refreshed = status_result.one_or_none()
-            if refreshed and refreshed.status in (ScanStatus.complete, ScanStatus.failed):
+            refreshed = status_result.scalar_one_or_none()
+            if refreshed and refreshed.status in (
+                ScanStatus.complete,
+                ScanStatus.failed,
+            ):
                 await websocket.close()
                 break
 

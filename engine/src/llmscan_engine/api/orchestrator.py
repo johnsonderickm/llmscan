@@ -29,20 +29,25 @@ async def run_scan(
     profile_name: str,
     dry_run: bool = False,
 ) -> None:
-    """Background task: fingerprint target, run plugins, classify responses, save findings."""
+    """Background task: fingerprint, run plugins, classify responses, save findings."""
     async with _AsyncSessionFactory() as session:
         try:
             await _set_status(session, scan_id, ScanStatus.running)
-            await _emit(session, scan_id, "scan_start", f"Scan started — target: {target_url}")
+            await _emit(
+                session, scan_id, "scan_start", f"Scan started — target: {target_url}"
+            )
 
             # Fingerprint
-            await _emit(session, scan_id, "fingerprint_start", "Fingerprinting target endpoint")
+            await _emit(
+                session, scan_id, "fingerprint_start", "Fingerprinting target endpoint"
+            )
             target_profile = await fingerprint(target_url, api_key)
+            model_label = target_profile.model_name or "unknown"
             await _emit(
                 session,
                 scan_id,
                 "fingerprint_complete",
-                f"Provider: {target_profile.provider.value}, model: {target_profile.model_name or 'unknown'}",
+                f"Provider: {target_profile.provider.value}, model: {model_label}",
             )
 
             # Load scan profile + plugins
@@ -70,7 +75,12 @@ async def run_scan(
 
             for plugin in plugins.values():
                 meta = plugin.metadata()
-                await _emit(session, scan_id, "plugin_start", f"Plugin: {meta.name} ({meta.owasp_id})")
+                await _emit(
+                    session,
+                    scan_id,
+                    "plugin_start",
+                    f"Plugin: {meta.name} ({meta.owasp_id})",
+                )
 
                 dispatcher = AsyncDispatcher(
                     target_url=target_url,
@@ -95,7 +105,9 @@ async def run_scan(
                     if exchange is None:  # dry_run
                         continue
 
-                    result = await classifier.classify(payload, exchange.response_body, plugin)
+                    result = await classifier.classify(
+                        payload, exchange.response_body, plugin
+                    )
 
                     if result.failure_mode != FailureMode.REFUSED:
                         finding = Finding(
@@ -105,10 +117,12 @@ async def run_scan(
                             mitre_atlas_id=meta.mitre_atlas_id,
                             failure_mode=result.failure_mode,
                             score=result.score,
-                            payload_hash=hashlib.sha256(payload.content.encode()).hexdigest()[:16],
-                            response_hash=hashlib.sha256(exchange.response_body.encode()).hexdigest()[:16],
+                            payload_hash=_short_hash(payload.content),
+                            response_hash=_short_hash(exchange.response_body),
                             evidence_path=str(
-                                Path("reports/output") / str(scan_id) / "evidence.ndjson"
+                                Path("reports/output")
+                                / str(scan_id)
+                                / "evidence.ndjson"
                             ),
                         )
                         session.add(finding)
@@ -118,7 +132,8 @@ async def run_scan(
                             session,
                             scan_id,
                             "finding",
-                            f"[{meta.owasp_id}] {result.failure_mode.value} score={result.score:.1f}",
+                            f"[{meta.owasp_id}] {result.failure_mode.value} "
+                            f"score={result.score:.1f}",
                         )
 
                 plugin_findings = sum(1 for f in findings if f.plugin_id == meta.id)
@@ -126,13 +141,14 @@ async def run_scan(
                     session,
                     scan_id,
                     "plugin_complete",
-                    f"Plugin {meta.name}: {count} payloads sent, {plugin_findings} finding(s)",
+                    f"Plugin {meta.name}: {count} payloads sent, "
+                    f"{plugin_findings} finding(s)",
                 )
 
             risk_score = max((f.score for f in findings), default=0.0)
 
-            result_row = await session.exec(select(Scan).where(Scan.id == scan_id))
-            scan = result_row.one()
+            result_row = await session.execute(select(Scan).where(Scan.id == scan_id))
+            scan = result_row.scalar_one()
             scan.status = ScanStatus.complete
             scan.finished_at = datetime.now(timezone.utc)
             scan.risk_score = risk_score
@@ -143,7 +159,8 @@ async def run_scan(
                 session,
                 scan_id,
                 "scan_complete",
-                f"Scan complete — {len(findings)} finding(s), risk score: {risk_score:.1f}/10",
+                f"Scan complete — {len(findings)} finding(s), "
+                f"risk score: {risk_score:.1f}/10",
             )
 
         except Exception as exc:
@@ -151,12 +168,17 @@ async def run_scan(
             raise
 
 
+def _short_hash(text: str) -> str:
+    """Return the first 16 hex chars of the SHA-256 of *text*."""
+    return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
 async def _set_status(
     session: AsyncSession, scan_id: uuid.UUID, status: ScanStatus
 ) -> None:
     """Update scan status in place."""
-    result = await session.exec(select(Scan).where(Scan.id == scan_id))
-    scan = result.one()
+    result = await session.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one()
     scan.status = status
     session.add(scan)
     await session.commit()
@@ -174,8 +196,8 @@ async def _mark_failed(scan_id: uuid.UUID, exc: Exception) -> None:
     """Open a fresh session to mark a scan as failed after an error."""
     try:
         async with _AsyncSessionFactory() as session:
-            result = await session.exec(select(Scan).where(Scan.id == scan_id))
-            scan = result.one_or_none()
+            result = await session.execute(select(Scan).where(Scan.id == scan_id))
+            scan = result.scalar_one_or_none()
             if scan:
                 scan.status = ScanStatus.failed
                 scan.finished_at = datetime.now(timezone.utc)

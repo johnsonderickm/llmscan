@@ -17,7 +17,6 @@ from llmscan_engine.core.classifier import (
     _parse_judge_verdict,
 )
 from llmscan_engine.core.config import Settings
-from llmscan_engine.core.connector import Provider, TargetProfile
 from llmscan_engine.db.models import FailureMode
 from llmscan_engine.plugins.builtin.llm01_direct import LLM01DirectInjection
 from llmscan_engine.plugins.schemas import ClassifierResult, Payload

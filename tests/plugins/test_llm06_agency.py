@@ -2,7 +2,7 @@ import pytest
 
 from llmscan_engine.core.connector import Provider, TargetProfile
 from llmscan_engine.db.models import FailureMode
-from llmscan_engine.plugins.builtin.llm06_agency import LLM06ExcessiveAgency, _TEMPLATES
+from llmscan_engine.plugins.builtin.llm06_agency import _TEMPLATES, LLM06ExcessiveAgency
 from llmscan_engine.plugins.schemas import Payload
 
 
