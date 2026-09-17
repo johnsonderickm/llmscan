@@ -27,6 +27,9 @@ reports/output/
 CLAUDE.md
 .claude/
 
+# ── Editor (machine-specific, never push) ────────────────────────────────────
+.vscode/
+
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
