@@ -51,6 +51,34 @@ uv run llmscan scan \
 
 ---
 
+## Generating reports
+
+Once a scan has `status: complete`, generate an audience-specific report
+via the CLI:
+
+```powershell
+cd engine
+uv run python -m llmscan_engine.cli.main report \
+  --scan-id <scan-id> --audience pentester --format html
+
+uv run python -m llmscan_engine.cli.main report \
+  --scan-id <scan-id> --audience cxo --format pdf
+```
+
+`--audience` is one of `pentester` / `manager` / `cxo`; `--format` is
+`html` (always available) or `pdf` (requires the optional `pdf` extra):
+
+```powershell
+uv sync --extra pdf
+uv run playwright install chromium
+```
+
+Or via the API: `POST /api/scans/{id}/report` with
+`{"audience": "manager", "format": "html"}`. Reports are written to
+`reports/output/{scan_id}/report_{audience}.{html,pdf}`.
+
+---
+
 ## API reference
 
 | Method | Path | Description |
@@ -61,7 +89,7 @@ uv run llmscan scan \
 | `GET` | `/api/scans/{id}/findings` | List findings (filter: `owasp_id`, `failure_mode`, `min_score`) |
 | `GET` | `/api/plugins` | List registered attack plugins |
 | `POST` | `/api/plugins/update` | Reload plugin registry |
-| `POST` | `/api/scans/{id}/report` | Generate report (Phase 12) |
+| `POST` | `/api/scans/{id}/report` | Generate a pentester/manager/cxo report (HTML or PDF) |
 | `WS` | `/ws/scan/{id}` | Live event stream for a running scan |
 
 ---
@@ -94,8 +122,8 @@ llmscan/
 │       ├── plugins/           12 built-in OWASP attack plugins (LLM01–LLM10)
 │       ├── profiles/          Scan profile YAML files (quick/standard/full)
 │       ├── db/                SQLModel models + Alembic migrations
-│       ├── cli/               Typer CLI
-│       └── reports/           Report generator (Phase 12)
+│       ├── cli/               Typer CLI (`llmscan report ...`)
+│       └── reports/           Jinja2 report generator (pentester/manager/cxo)
 ├── dashboard/                 React 18 + Vite + TypeScript frontend
 │   └── src/
 │       ├── pages/             ScanSetup, ScanLive, FindingExplorer, ScanHistory
@@ -136,7 +164,7 @@ uv sync --extra dev --extra garak
 | 09 | Response classifier (4-layer) | ✅ |
 | 10 | FastAPI server + WebSocket | ✅ |
 | 11 | React dashboard | ✅ |
-| 12 | Report generator (3 audiences) | ⬜ |
+| 12 | Report generator (3 audiences) | ✅ |
 | 13 | CLI polish + scan profiles | ⬜ |
 | 14 | Plugin registry + extensibility | ⬜ |
 

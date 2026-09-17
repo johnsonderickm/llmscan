@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block title %}LLMScan — Manager Report{% endblock %}
+{% block heading %}Manager Report{% endblock %}
+{% block content %}
+
+<div class="meta-grid">
+  <div class="meta-card"><div class="label">Findings</div><div class="value">{{ findings|length }}</div></div>
+  <div class="meta-card"><div class="label">Risk Score</div><div class="value">{{ "%.1f"|format(scan.risk_score or 0) }} / 10</div></div>
+  <div class="meta-card"><div class="label">Critical / High</div><div class="value">{{ critical_high_count }}</div></div>
+</div>
+
+<h2>Risk Heatmap — OWASP LLM Top 10</h2>
+<table>
+  <thead>
+    <tr><th>Category</th><th>Findings</th><th>Max Score</th><th>Severity</th></tr>
+  </thead>
+  <tbody>
+  {% for cell in heatmap %}
+    <tr>
+      <td>{{ cell.owasp_id }}</td>
+      <td>{{ cell.count }}</td>
+      <td>{{ "%.1f"|format(cell.max_score) }}</td>
+      <td><span class="badge badge-{{ cell.severity_band|lower }}">{{ cell.severity_band }}</span></td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2>Fix Priority Queue &amp; SLA Tracker</h2>
+{% if fix_queue %}
+<table>
+  <thead>
+    <tr><th>Priority</th><th>Category</th><th>Plugin</th><th>Score</th><th>Effort Estimate</th><th>SLA</th><th>Due</th><th>Status</th></tr>
+  </thead>
+  <tbody>
+  {% for item in fix_queue %}
+    <tr>
+      <td><span class="badge badge-{{ item.severity_band|lower }}">{{ item.severity_band }}</span></td>
+      <td>{{ item.row.owasp_id }}</td>
+      <td>{{ item.plugin_name }}</td>
+      <td>{{ "%.1f"|format(item.row.score) }}</td>
+      <td>
+        {%- if item.severity_band == "Critical" %}2–4 weeks
+        {%- elif item.severity_band == "High" %}1–2 sprints
+        {%- elif item.severity_band == "Medium" %}1 sprint
+        {%- else %}Next planning cycle{% endif -%}
+      </td>
+      <td>{{ item.sla_days }} days</td>
+      <td>{{ item.due_date }}</td>
+      <td>{{ "OVERDUE" if item.overdue else "On track" }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No findings — nothing queued for remediation.</p>
+{% endif %}
+
+<h2>Guidance for Top Findings</h2>
+{% for item in fix_queue[:5] %}
+<h3>{{ item.row.owasp_id }} — {{ item.plugin_name }}</h3>
+<p>{{ item.remediation.manager }}</p>
+{% endfor %}
+
+{% endblock %}

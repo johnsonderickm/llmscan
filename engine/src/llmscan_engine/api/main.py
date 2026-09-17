@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from llmscan_engine.api.routers import findings, plugins, reports, scans
 from llmscan_engine.api.ws.feed import router as ws_router
@@ -41,11 +42,14 @@ def create_app() -> FastAPI:
     app.include_router(reports.router, prefix="/api")
     app.include_router(ws_router)
 
-    # Serve React dashboard in production when built
-    dist = Path(__file__).parents[5] / "dashboard" / "dist"
-    if dist.exists():
-        from fastapi.staticfiles import StaticFiles
+    # Serve generated report files (HTML/PDF) so the dashboard can view them
+    reports_dir = Path("reports/output")
+    reports_dir.mkdir(parents=True, exist_ok=True)
+    app.mount("/reports", StaticFiles(directory=str(reports_dir)), name="reports")
 
+    # Serve React dashboard in production when built
+    dist = Path(__file__).parents[4] / "dashboard" / "dist"
+    if dist.exists():
         app.mount("/", StaticFiles(directory=str(dist), html=True), name="static")
 
     return app

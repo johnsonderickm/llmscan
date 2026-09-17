@@ -1,4 +1,4 @@
-import type { Finding, Plugin, Scan, ScanCreate } from '../types'
+import type { Audience, Finding, Plugin, ReportResponse, Scan, ScanCreate } from '../types'
 
 const BASE = '/api'
 
@@ -37,5 +37,12 @@ export const api = {
   plugins: {
     list: () => request<Plugin[]>('/plugins'),
     update: () => request<{ message: string; count: number }>('/plugins/update', { method: 'POST' }),
+  },
+  reports: {
+    generate: (scanId: string, audience: Audience, format: 'html' | 'pdf' = 'html') =>
+      request<ReportResponse>(`/scans/${scanId}/report`, {
+        method: 'POST',
+        body: JSON.stringify({ audience, format }),
+      }),
   },
 }

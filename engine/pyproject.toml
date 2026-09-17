@@ -35,6 +35,7 @@ ml = [
     "numpy>=1.26.0",
 ]
 garak = ["garak>=0.9"]
+pdf = ["playwright>=1.44"]
 
 [project.scripts]
 llmscan = "llmscan_engine.cli.main:app"

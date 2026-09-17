@@ -21,7 +21,7 @@ dashboard/dist/
 # ── Scan Output & Evidence ────────────────────────────────────────────────────
 evidence/
 *.ndjson
-reports/output/
+**/reports/output/
 
 # ── Claude (local-only, never push) ──────────────────────────────────────────
 CLAUDE.md

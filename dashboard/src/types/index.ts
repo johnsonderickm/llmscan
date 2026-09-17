@@ -58,3 +58,11 @@ export interface ScanCreate {
   dry_run: boolean
   use_garak: boolean
 }
+
+export interface ReportResponse {
+  scan_id: string
+  audience: Audience
+  format: string
+  path: string
+  message: string
+}

@@ -3,6 +3,26 @@ import type { Audience, Finding, Plugin, Scan } from '../types'
 
 type Theme = 'light' | 'dark'
 
+const THEME_KEY = 'llmscan-theme'
+
+function getStoredTheme(): Theme {
+  try {
+    const stored = localStorage.getItem(THEME_KEY)
+    if (stored === 'light' || stored === 'dark') return stored
+  } catch {
+    // localStorage unavailable (private window, blocked storage, etc.)
+  }
+  return 'light'
+}
+
+function persistTheme(theme: Theme): void {
+  try {
+    localStorage.setItem(THEME_KEY, theme)
+  } catch {
+    // best-effort only — theme just won't persist this session
+  }
+}
+
 interface AppState {
   theme: Theme
   audience: Audience
@@ -26,6 +46,7 @@ function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_THEME':
       document.documentElement.setAttribute('data-theme', action.payload)
+      persistTheme(action.payload)
       return { ...state, theme: action.payload }
     case 'SET_AUDIENCE':
       return { ...state, audience: action.payload }
@@ -49,8 +70,11 @@ function reducer(state: AppState, action: Action): AppState {
   }
 }
 
+const initialTheme = getStoredTheme()
+document.documentElement.setAttribute('data-theme', initialTheme)
+
 const initialState: AppState = {
-  theme: 'light',
+  theme: initialTheme,
   audience: 'pentester',
   scans: [],
   activeScanId: null,

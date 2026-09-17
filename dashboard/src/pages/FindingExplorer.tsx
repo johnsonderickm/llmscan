@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { FindingDetail } from '../components/FindingDetail'
+import { ReportViewer } from '../components/ReportViewer'
 import { useApp } from '../context/AppContext'
 import { api } from '../lib/api'
 import type { FailureMode, Finding } from '../types'
@@ -19,7 +20,7 @@ const SEVERITY_COLOR: Record<string, string> = {
 
 export function FindingExplorer() {
   const { scanId } = useParams<{ scanId: string }>()
-  const { dispatch } = useApp()
+  const { state, dispatch } = useApp()
 
   const [findings, setFindings] = useState<Finding[]>([])
   const [loading, setLoading] = useState(true)
@@ -27,6 +28,10 @@ export function FindingExplorer() {
   const [owaspFilter, setOwaspFilter] = useState('')
   const [modeFilter, setModeFilter] = useState('')
   const [minScore, setMinScore] = useState(0)
+
+  const [reportSrc, setReportSrc] = useState<string | null>(null)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
 
   useEffect(() => {
     if (!scanId) return
@@ -42,9 +47,41 @@ export function FindingExplorer() {
       .finally(() => setLoading(false))
   }, [scanId, owaspFilter, modeFilter, minScore, dispatch])
 
+  async function generateReport() {
+    if (!scanId) return
+    setReportLoading(true)
+    try {
+      await api.reports.generate(scanId, state.audience, 'html')
+      setReportSrc(`/reports/${scanId}/report_${state.audience}.html?t=${Date.now()}`)
+      setReportOpen(true)
+    } catch (e) {
+      window.alert(`Failed to generate report: ${(e as Error).message}`)
+    } finally {
+      setReportLoading(false)
+    }
+  }
+
+  // Re-generate for the newly selected audience whenever the viewer is open
+  useEffect(() => {
+    if (reportOpen) {
+      generateReport()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.audience])
+
   return (
     <div className="max-w-5xl mx-auto mt-8 space-y-4">
-      <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Findings</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Findings</h1>
+        <button
+          onClick={generateReport}
+          disabled={reportLoading}
+          className="px-4 py-2 rounded-lg text-sm font-medium text-white capitalize disabled:opacity-50"
+          style={{ background: 'var(--color-accent)' }}
+        >
+          {reportLoading ? 'Generating…' : `View ${state.audience} report`}
+        </button>
+      </div>
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 p-4 rounded-xl border" style={{ background: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
@@ -132,6 +169,15 @@ export function FindingExplorer() {
       {/* Detail drawer */}
       {selected && (
         <FindingDetail finding={selected} onClose={() => setSelected(null)} />
+      )}
+
+      {/* Report viewer */}
+      {reportOpen && reportSrc && (
+        <ReportViewer
+          src={reportSrc}
+          audience={state.audience}
+          onClose={() => setReportOpen(false)}
+        />
       )}
     </div>
   )

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}LLMScan — Executive Summary{% endblock %}
+{% block heading %}Executive Summary{% endblock %}
+{% block content %}
+
+{% set gauge_colors = {"Critical": "#dc2626", "High": "#ea580c", "Medium": "#d97706", "Low": "#65a30d"} %}
+{% set gauge_color = gauge_colors.get(risk_band, "#16a34a") %}
+
+<div style="display:flex; gap:32px; align-items:center; margin-bottom: 24px; flex-wrap: wrap;">
+  <svg width="160" height="160" viewBox="0 0 100 100">
+    <circle cx="50" cy="50" r="40" fill="none" stroke="#e5e7eb" stroke-width="10" />
+    <circle cx="50" cy="50" r="40" fill="none"
+      stroke="{{ gauge_color }}"
+      stroke-width="10" stroke-linecap="round"
+      stroke-dasharray="251.2" stroke-dashoffset="{{ gauge_dashoffset }}"
+      transform="rotate(-90 50 50)" />
+    <text x="50" y="47" text-anchor="middle" font-size="22" font-weight="700" fill="#1a1a2e">{{ "%.1f"|format(risk_score) }}</text>
+    <text x="50" y="63" text-anchor="middle" font-size="9" fill="#6b7280">/ 10</text>
+  </svg>
+  <div class="meta-card">
+    <div class="label">Overall Risk</div>
+    <div class="value"><span class="badge badge-{{ risk_band|lower }}">{{ risk_band }}</span></div>
+  </div>
+  <div class="meta-card">
+    <div class="label">Findings</div>
+    <div class="value">{{ findings|length }}</div>
+  </div>
+  <div class="meta-card">
+    <div class="label">Categories Affected</div>
+    <div class="value">{{ affected_categories|length }} / 10</div>
+  </div>
+</div>
+
+<h2>Impact Summary</h2>
+<p>{{ impact_narrative or "No material findings were identified during this assessment." }}</p>
+
+<h2>Compliance Gap Table</h2>
+{% if compliance_gaps %}
+<table>
+  <thead>
+    <tr><th>OWASP Category</th><th>SOC 2</th><th>ISO 27001</th><th>EU AI Act</th></tr>
+  </thead>
+  <tbody>
+  {% for gap in compliance_gaps %}
+    <tr>
+      <td>{{ gap.owasp_id }}</td>
+      <td>{{ gap.soc2 }}</td>
+      <td>{{ gap.iso27001 }}</td>
+      <td>{{ gap.eu_ai_act }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p>No compliance-relevant gaps identified — no findings recorded for this scan.</p>
+{% endif %}
+
+{% endblock %}
