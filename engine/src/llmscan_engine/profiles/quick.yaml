@@ -1,0 +1,5 @@
+name: quick
+plugin_ids:
+  - llm01_direct
+max_payloads_per_plugin: 20
+use_garak: false

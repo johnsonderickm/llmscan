@@ -1,0 +1,4 @@
+name: standard
+plugin_ids: null
+max_payloads_per_plugin: 20
+use_garak: true
