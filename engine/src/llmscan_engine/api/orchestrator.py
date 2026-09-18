@@ -1,14 +1,16 @@
+import asyncio
 import hashlib
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from llmscan_engine.core.classifier import Classifier
 from llmscan_engine.core.config import get_settings
-from llmscan_engine.core.connector import fingerprint
+from llmscan_engine.core.connector import TargetProfile, fingerprint
 from llmscan_engine.core.dispatcher import AsyncDispatcher
 from llmscan_engine.db.database import _AsyncSessionFactory
 from llmscan_engine.db.models import (
@@ -18,8 +20,30 @@ from llmscan_engine.db.models import (
     ScanEvent,
     ScanStatus,
 )
+from llmscan_engine.plugins.garak_loader import set_garak_enabled
 from llmscan_engine.plugins.registry import all_plugins
 from llmscan_engine.profiles.loader import load_profile
+
+_running_tasks: dict[uuid.UUID, asyncio.Task] = {}
+
+
+def register_task(scan_id: uuid.UUID, task: asyncio.Task) -> None:
+    """Track a scan's background task so it can later be cancelled."""
+    _running_tasks[scan_id] = task
+    task.add_done_callback(lambda _: _running_tasks.pop(scan_id, None))
+
+
+def cancel_scan(scan_id: uuid.UUID) -> bool:
+    """Request cancellation of a running scan's background task.
+
+    Returns False if no running task is tracked for *scan_id* (already
+    finished, unknown, or this process didn't start it).
+    """
+    task = _running_tasks.get(scan_id)
+    if task is None or task.done():
+        return False
+    task.cancel()
+    return True
 
 
 async def run_scan(
@@ -28,8 +52,17 @@ async def run_scan(
     api_key: str,
     profile_name: str,
     dry_run: bool = False,
+    use_garak: Optional[bool] = None,
+    target_profile: Optional[TargetProfile] = None,
+    model: Optional[str] = None,
 ) -> None:
-    """Background task: fingerprint, run plugins, classify responses, save findings."""
+    """Background task: fingerprint, run plugins, classify responses, save findings.
+
+    ``use_garak=None`` defers to the scan profile's own ``use_garak`` setting;
+    pass True/False to override it (e.g. CLI ``--no-garak``). ``target_profile``
+    lets a caller that already fingerprinted the target (e.g. to estimate
+    request volume) skip re-fingerprinting here.
+    """
     async with _AsyncSessionFactory() as session:
         try:
             await _set_status(session, scan_id, ScanStatus.running)
@@ -37,11 +70,15 @@ async def run_scan(
                 session, scan_id, "scan_start", f"Scan started — target: {target_url}"
             )
 
-            # Fingerprint
-            await _emit(
-                session, scan_id, "fingerprint_start", "Fingerprinting target endpoint"
-            )
-            target_profile = await fingerprint(target_url, api_key)
+            # Fingerprint (unless the caller already did it)
+            if target_profile is None:
+                await _emit(
+                    session,
+                    scan_id,
+                    "fingerprint_start",
+                    "Fingerprinting target endpoint",
+                )
+                target_profile = await fingerprint(target_url, api_key, model)
             model_label = target_profile.model_name or "unknown"
             await _emit(
                 session,
@@ -52,6 +89,9 @@ async def run_scan(
 
             # Load scan profile + plugins
             scan_profile = load_profile(profile_name)
+            set_garak_enabled(
+                scan_profile.use_garak if use_garak is None else use_garak
+            )
             registered = all_plugins()
             if scan_profile.plugin_ids is not None:
                 plugins = {
@@ -163,6 +203,9 @@ async def run_scan(
                 f"risk score: {risk_score:.1f}/10",
             )
 
+        except asyncio.CancelledError:
+            await _mark_cancelled(scan_id)
+            raise
         except Exception as exc:
             await _mark_failed(scan_id, exc)
             raise
@@ -207,6 +250,28 @@ async def _mark_failed(scan_id: uuid.UUID, exc: Exception) -> None:
                         scan_id=scan_id,
                         event_type="scan_error",
                         message=f"{type(exc).__name__}: {str(exc)[:200]}",
+                    )
+                )
+                await session.commit()
+    except Exception:
+        pass
+
+
+async def _mark_cancelled(scan_id: uuid.UUID) -> None:
+    """Open a fresh session to mark a scan as cancelled by the user."""
+    try:
+        async with _AsyncSessionFactory() as session:
+            result = await session.execute(select(Scan).where(Scan.id == scan_id))
+            scan = result.scalar_one_or_none()
+            if scan:
+                scan.status = ScanStatus.cancelled
+                scan.finished_at = datetime.now(timezone.utc)
+                session.add(scan)
+                session.add(
+                    ScanEvent(
+                        scan_id=scan_id,
+                        event_type="scan_cancelled",
+                        message="Scan cancelled by user request.",
                     )
                 )
                 await session.commit()

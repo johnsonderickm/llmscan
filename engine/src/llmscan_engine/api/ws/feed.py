@@ -52,7 +52,7 @@ async def ws_scan_feed(
             return
 
     # If scan already finished, close cleanly
-    if scan.status in (ScanStatus.complete, ScanStatus.failed):
+    if scan.status in (ScanStatus.complete, ScanStatus.failed, ScanStatus.cancelled):
         try:
             await websocket.close()
         except Exception:
@@ -89,6 +89,7 @@ async def ws_scan_feed(
             if refreshed and refreshed.status in (
                 ScanStatus.complete,
                 ScanStatus.failed,
+                ScanStatus.cancelled,
             ):
                 await websocket.close()
                 break

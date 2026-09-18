@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from llmscan_engine.api.orchestrator import run_scan
+from llmscan_engine.api.orchestrator import cancel_scan, register_task, run_scan
 from llmscan_engine.api.schemas import ScanCreate, ScanRead
 from llmscan_engine.db.database import get_session
 from llmscan_engine.db.models import Scan, ScanStatus
@@ -29,15 +29,18 @@ async def create_scan(
     await session.commit()
     await session.refresh(scan)
 
-    asyncio.create_task(
+    task = asyncio.create_task(
         run_scan(
             scan_id=scan.id,
             target_url=body.target_url,
             api_key=body.api_key,
             profile_name=body.profile,
             dry_run=body.dry_run,
+            use_garak=body.use_garak,
+            model=body.model,
         )
     )
+    register_task(scan.id, task)
 
     return ScanRead.model_validate(scan)
 
@@ -62,4 +65,26 @@ async def get_scan(
     scan = await session.get(Scan, scan_id)
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
+    return ScanRead.model_validate(scan)
+
+
+@router.post("/scans/{scan_id}/cancel", response_model=ScanRead)
+async def cancel_scan_endpoint(
+    scan_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+) -> ScanRead:
+    """Request cancellation of a running scan."""
+    scan = await session.get(Scan, scan_id)
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    if scan.status not in (ScanStatus.pending, ScanStatus.running):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Scan is not running (status: {scan.status.value})",
+        )
+    if not cancel_scan(scan_id):
+        raise HTTPException(
+            status_code=409,
+            detail="No running task found for this scan (it may have just finished).",
+        )
     return ScanRead.model_validate(scan)

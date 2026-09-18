@@ -20,6 +20,7 @@ export const api = {
       request<Scan>('/scans', { method: 'POST', body: JSON.stringify(body) }),
     list: () => request<Scan[]>('/scans'),
     get: (id: string) => request<Scan>(`/scans/${id}`),
+    cancel: (id: string) => request<Scan>(`/scans/${id}/cancel`, { method: 'POST' }),
   },
   findings: {
     list: (

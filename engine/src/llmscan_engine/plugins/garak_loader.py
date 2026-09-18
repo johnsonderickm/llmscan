@@ -9,12 +9,27 @@ from __future__ import annotations
 
 import importlib
 import logging
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
 _log = logging.getLogger(__name__)
+
+_garak_enabled: ContextVar[bool] = ContextVar("garak_enabled", default=True)
+
+
+def set_garak_enabled(enabled: bool) -> None:
+    """
+    Enable or disable Garak probe merging for the current async context.
+
+    Used by ``--no-garak`` / ``use_garak=False`` to force every plugin's
+    ``load_garak_probes()`` call to return [] regardless of whether the
+    Garak package is installed. Scoped via ContextVar so concurrent scans
+    (each its own asyncio task) don't stomp on each other's setting.
+    """
+    _garak_enabled.set(enabled)
 
 
 def load_garak_probes(
@@ -27,8 +42,11 @@ def load_garak_probes(
     attribute (list[str]).  If *probe_class* is given, only that class is
     inspected.
 
-    Returns [] when Garak is not installed or the module cannot be loaded.
+    Returns [] when Garak is not installed, disabled via
+    ``set_garak_enabled(False)``, or the module cannot be loaded.
     """
+    if not _garak_enabled.get():
+        return []
     try:
         module = importlib.import_module(module_path)
     except ImportError:

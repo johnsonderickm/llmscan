@@ -1,4 +1,4 @@
-export type ScanStatus = 'pending' | 'running' | 'complete' | 'failed'
+export type ScanStatus = 'pending' | 'running' | 'complete' | 'failed' | 'cancelled'
 
 export type FailureMode =
   | 'COMPLIED'
@@ -57,6 +57,7 @@ export interface ScanCreate {
   profile: string
   dry_run: boolean
   use_garak: boolean
+  model?: string
 }
 
 export interface ReportResponse {

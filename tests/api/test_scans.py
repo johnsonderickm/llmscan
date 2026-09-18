@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -9,7 +10,7 @@ from sqlmodel import SQLModel
 
 from llmscan_engine.api.main import create_app
 from llmscan_engine.db.database import get_session
-from llmscan_engine.db.models import ScanStatus
+from llmscan_engine.db.models import Scan, ScanStatus
 from llmscan_engine.plugins.registry import clear_registry, init_registry
 
 _TEST_DB = "sqlite+aiosqlite:///:memory:"
@@ -53,6 +54,17 @@ async def client(session):
 async def no_scan():
     """Patch run_scan so background tasks don't fire real HTTP during tests."""
     with patch("llmscan_engine.api.routers.scans.run_scan", new_callable=AsyncMock) as m:
+        yield m
+
+
+@pytest_asyncio.fixture
+async def slow_scan():
+    """Patch run_scan with a long sleep so its background task stays cancellable."""
+
+    async def _sleep(*args, **kwargs):
+        await asyncio.sleep(10)
+
+    with patch("llmscan_engine.api.routers.scans.run_scan", side_effect=_sleep) as m:
         yield m
 
 
@@ -126,3 +138,47 @@ async def test_create_scan_dry_run_flag(client, no_scan):
         },
     )
     assert resp.status_code == 202
+
+
+# ---------------------------------------------------------------------------
+# cancel
+# ---------------------------------------------------------------------------
+
+
+async def test_cancel_scan_not_found(client):
+    resp = await client.post(f"/api/scans/{uuid.uuid4()}/cancel")
+    assert resp.status_code == 404
+
+
+async def test_cancel_scan_not_running_returns_409(client, session):
+    scan = Scan(target_url="http://x", profile="quick", status=ScanStatus.complete)
+    session.add(scan)
+    await session.commit()
+    await session.refresh(scan)
+
+    resp = await client.post(f"/api/scans/{scan.id}/cancel")
+    assert resp.status_code == 409
+
+
+async def test_cancel_scan_no_registered_task_returns_409(client, session):
+    scan = Scan(target_url="http://x", profile="quick", status=ScanStatus.running)
+    session.add(scan)
+    await session.commit()
+    await session.refresh(scan)
+
+    resp = await client.post(f"/api/scans/{scan.id}/cancel")
+    assert resp.status_code == 409
+
+
+async def test_cancel_scan_success(client, slow_scan):
+    create = await client.post(
+        "/api/scans",
+        json={"target_url": "http://target/v1", "api_key": "k", "profile": "quick"},
+    )
+    scan_id = create.json()["id"]
+    await asyncio.sleep(0.05)  # let the background task start and get registered
+
+    resp = await client.post(f"/api/scans/{scan_id}/cancel")
+
+    assert resp.status_code == 200
+    await asyncio.sleep(0.05)  # let the cancellation actually land

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useApp } from '../context/AppContext'
 import { useScanFeed } from '../hooks/useScanFeed'
@@ -25,6 +25,8 @@ export function ScanLive() {
   const { events, connected } = useScanFeed(scanId ?? null)
 
   const scan = state.scans.find(s => s.id === scanId)
+  const [stopping, setStopping] = useState(false)
+  const [stopError, setStopError] = useState<string | null>(null)
 
   // Poll scan status until complete
   useEffect(() => {
@@ -33,7 +35,7 @@ export function ScanLive() {
       try {
         const updated = await api.scans.get(scanId)
         dispatch({ type: 'UPDATE_SCAN', payload: updated })
-        if (updated.status === 'complete' || updated.status === 'failed') {
+        if (['complete', 'failed', 'cancelled'].includes(updated.status)) {
           clearInterval(interval)
         }
       } catch { /* ignore */ }
@@ -41,8 +43,23 @@ export function ScanLive() {
     return () => clearInterval(interval)
   }, [scanId, dispatch])
 
+  async function handleStop() {
+    if (!scanId) return
+    setStopping(true)
+    setStopError(null)
+    try {
+      const updated = await api.scans.cancel(scanId)
+      dispatch({ type: 'UPDATE_SCAN', payload: updated })
+    } catch (err) {
+      setStopError(err instanceof Error ? err.message : 'Failed to stop scan')
+    } finally {
+      setStopping(false)
+    }
+  }
+
   const findings = events.filter(e => e.event_type === 'finding')
-  const isComplete = scan?.status === 'complete' || scan?.status === 'failed'
+  const isRunning = scan?.status === 'pending' || scan?.status === 'running'
+  const isComplete = !isRunning
 
   return (
     <div className="max-w-3xl mx-auto mt-8 space-y-6">
@@ -63,6 +80,22 @@ export function ScanLive() {
           <Stat label="Findings" value={String(findings.length)} highlight={findings.length > 0} />
           <Stat label="Risk score" value={scan?.risk_score != null ? `${scan.risk_score.toFixed(1)}/10` : '—'} highlight={(scan?.risk_score ?? 0) >= 7} />
         </div>
+
+        {isRunning && (
+          <div className="mt-4">
+            <button
+              onClick={handleStop}
+              disabled={stopping}
+              className="px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50"
+              style={{ background: 'var(--color-danger)' }}
+            >
+              {stopping ? 'Stopping…' : 'Stop scan'}
+            </button>
+            {stopError && (
+              <p className="text-xs mt-2" style={{ color: 'var(--color-danger)' }}>{stopError}</p>
+            )}
+          </div>
+        )}
 
         {isComplete && (
           <div className="mt-4 flex gap-3">
@@ -121,6 +154,7 @@ function StatusBadge({ status }: { status: string }) {
     running: '#f59e0b',
     complete: '#10b981',
     failed: '#ef4444',
+    cancelled: '#f59e0b',
   }
   return (
     <span className="px-3 py-1 rounded-full text-xs font-semibold text-white capitalize" style={{ background: colors[status] ?? '#6b7280' }}>

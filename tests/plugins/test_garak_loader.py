@@ -3,7 +3,11 @@ import types
 from pathlib import Path
 from unittest.mock import patch
 
-from llmscan_engine.plugins.garak_loader import load_garak_probes, load_yaml_templates
+from llmscan_engine.plugins.garak_loader import (
+    load_garak_probes,
+    load_yaml_templates,
+    set_garak_enabled,
+)
 
 _YAML_DIR = (
     Path(__file__).parent.parent.parent
@@ -97,6 +101,35 @@ def test_skips_non_type_module_members() -> None:
         result = load_garak_probes("garak.probes.fake")
 
     assert result == []
+
+
+# ---------------------------------------------------------------------------
+# set_garak_enabled
+# ---------------------------------------------------------------------------
+
+
+def test_set_garak_enabled_false_short_circuits_even_when_installed() -> None:
+    class FakeProbe:
+        prompts = ["should never appear"]
+
+    set_garak_enabled(False)
+    try:
+        with patch("importlib.import_module", return_value=_make_module(FakeProbe)):
+            result = load_garak_probes("garak.probes.fake")
+        assert result == []
+    finally:
+        set_garak_enabled(True)
+
+
+def test_set_garak_enabled_true_restores_normal_behavior() -> None:
+    class FakeProbe:
+        prompts = ["visible again"]
+
+    set_garak_enabled(False)
+    set_garak_enabled(True)
+    with patch("importlib.import_module", return_value=_make_module(FakeProbe)):
+        result = load_garak_probes("garak.probes.fake")
+    assert "visible again" in result
 
 
 # ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ class ScanStatus(str, Enum):
     running = "running"
     complete = "complete"
     failed = "failed"
+    cancelled = "cancelled"
 
 
 class FailureMode(str, Enum):

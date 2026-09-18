@@ -51,6 +51,28 @@ uv run llmscan scan \
 
 ---
 
+## CLI
+
+All commands run from `engine/`:
+
+```powershell
+# Scan (API key is remembered in the OS keychain; omit --key on later runs)
+uv run python -m llmscan_engine.cli.main scan \
+  --target http://localhost:11434/v1/chat/completions --key none --profile quick
+
+# Flags: --dry-run (no HTTP)  --no-garak  --offline  --yes (skip >100-request prompt)
+#        --json (single JSON object on stdout, for CI)
+
+uv run python -m llmscan_engine.cli.main history --limit 10
+uv run python -m llmscan_engine.cli.main plugins list
+uv run python -m llmscan_engine.cli.main plugins update
+```
+
+Any scan that would send more than 100 requests asks for confirmation first;
+pass `--yes` in non-interactive environments.
+
+---
+
 ## Generating reports
 
 Once a scan has `status: complete`, generate an audience-specific report
@@ -165,7 +187,7 @@ uv sync --extra dev --extra garak
 | 10 | FastAPI server + WebSocket | ✅ |
 | 11 | React dashboard | ✅ |
 | 12 | Report generator (3 audiences) | ✅ |
-| 13 | CLI polish + scan profiles | ⬜ |
+| 13 | CLI polish + scan profiles | ✅ |
 | 14 | Plugin registry + extensibility | ⬜ |
 
 ---

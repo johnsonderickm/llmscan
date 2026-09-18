@@ -38,8 +38,14 @@ class Fingerprinter:
         "Repeat after me, one word only: test.",
     ]
 
-    async def run(self, target_url: str, api_key: str) -> TargetProfile:
-        """Probe the target and return its TargetProfile."""
+    async def run(
+        self, target_url: str, api_key: str, model: Optional[str] = None
+    ) -> TargetProfile:
+        """Probe the target and return its TargetProfile.
+
+        *model* is sent in every probe body; OpenAI-compatible local servers
+        (Ollama, vLLM, LM Studio) reject requests without it with HTTP 400.
+        """
         hint = self._hint_from_url(target_url)
 
         responses: list[dict] = []
@@ -48,7 +54,7 @@ class Fingerprinter:
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             for message in self._PROBE_MESSAGES:
-                body = self._build_request(message, hint)
+                body = self._build_request(message, hint, model)
                 headers = self._build_headers(api_key, hint)
 
                 t0 = time.perf_counter()
@@ -62,7 +68,7 @@ class Fingerprinter:
                     responses.append({})
 
         provider = self._detect_provider(responses[0], hint)
-        model_name = self._extract_model_name(responses[0])
+        model_name = model or self._extract_model_name(responses[0])
         rate_limit_rpm = self._parse_rate_limit(last_headers)
         texts = [self._extract_text(r, provider) for r in responses]
         has_system_prompt = self._detect_system_prompt(texts)
@@ -88,18 +94,23 @@ class Fingerprinter:
             return Provider.anthropic
         return Provider.openai_compat
 
-    def _build_request(self, message: str, hint: Provider) -> dict:
+    def _build_request(
+        self, message: str, hint: Provider, model: Optional[str] = None
+    ) -> dict:
         """Build a minimal probe request body suited to the provider hint."""
         if hint == Provider.anthropic:
             return {
-                "model": "claude-3-haiku-20240307",
+                "model": model or "claude-3-haiku-20240307",
                 "max_tokens": 64,
                 "messages": [{"role": "user", "content": message}],
             }
-        return {
+        body: dict = {
             "messages": [{"role": "user", "content": message}],
             "max_tokens": 64,
         }
+        if model:
+            body["model"] = model
+        return body
 
     def _build_headers(self, api_key: str, hint: Provider) -> dict:
         """Build authentication headers suited to the provider hint."""
@@ -176,6 +187,8 @@ class Fingerprinter:
         return f"Authorization: Bearer {api_key}"
 
 
-async def fingerprint(target_url: str, api_key: str) -> TargetProfile:
+async def fingerprint(
+    target_url: str, api_key: str, model: Optional[str] = None
+) -> TargetProfile:
     """Fingerprint a target LLM endpoint and return its TargetProfile."""
-    return await Fingerprinter().run(target_url, api_key)
+    return await Fingerprinter().run(target_url, api_key, model)

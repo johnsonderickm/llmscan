@@ -11,6 +11,7 @@ export function ScanSetup() {
 
   const [targetUrl, setTargetUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
+  const [model, setModel] = useState('')
   const [profile, setProfile] = useState<string>('standard')
   const [useGarak, setUseGarak] = useState(true)
   const [dryRun, setDryRun] = useState(false)
@@ -22,7 +23,14 @@ export function ScanSetup() {
     setLoading(true)
     setError(null)
     try {
-      const scan = await api.scans.create({ target_url: targetUrl, api_key: apiKey, profile, dry_run: dryRun, use_garak: useGarak })
+      const scan = await api.scans.create({
+        target_url: targetUrl,
+        api_key: apiKey,
+        profile,
+        dry_run: dryRun,
+        use_garak: useGarak,
+        model: model.trim() || undefined,
+      })
       dispatch({ type: 'ADD_SCAN', payload: scan })
       dispatch({ type: 'SET_ACTIVE_SCAN', payload: scan.id })
       navigate(`/scans/${scan.id}/live`)
@@ -58,6 +66,17 @@ export function ScanSetup() {
             placeholder="sk-… or 'none' for local endpoints"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
+            className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2"
+            style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+          />
+        </Field>
+
+        <Field label="Model name">
+          <input
+            type="text"
+            placeholder="e.g. llama3, mistral, gpt-4o — required by Ollama / vLLM / LM Studio"
+            value={model}
+            onChange={e => setModel(e.target.value)}
             className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2"
             style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
           />

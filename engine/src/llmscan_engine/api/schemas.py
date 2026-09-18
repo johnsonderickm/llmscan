@@ -15,6 +15,7 @@ class ScanCreate(BaseModel):
     profile: str = "standard"
     dry_run: bool = False
     use_garak: bool = True
+    model: Optional[str] = None
 
 
 class ScanRead(BaseModel):
