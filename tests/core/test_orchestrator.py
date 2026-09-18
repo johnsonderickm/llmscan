@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from typing import AsyncIterator
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -10,8 +11,11 @@ from sqlmodel import SQLModel, select
 
 from llmscan_engine.api import orchestrator
 from llmscan_engine.core.connector import Provider, TargetProfile
-from llmscan_engine.db.models import Scan, ScanStatus
-from llmscan_engine.plugins.registry import clear_registry
+from llmscan_engine.core.dispatcher import Exchange
+from llmscan_engine.db.models import FailureMode, Finding, Scan, ScanStatus
+from llmscan_engine.plugins.base import AttackPlugin
+from llmscan_engine.plugins.registry import clear_registry, register_plugin
+from llmscan_engine.plugins.schemas import ClassifierResult, Payload, PluginMetadata
 
 _TEST_DB = "sqlite+aiosqlite:///:memory:"
 
@@ -101,6 +105,155 @@ async def test_use_garak_override_forces_disabled_on_true_profile(
     )
 
     set_garak_mock.assert_called_once_with(False)
+
+
+# ---------------------------------------------------------------------------
+# inconclusive-result gate
+# ---------------------------------------------------------------------------
+
+
+class _FixedPlugin(AttackPlugin):
+    """One payload; classifier returns a PARTIAL with a configurable confidence."""
+
+    def __init__(self, confidence: float) -> None:
+        self._confidence = confidence
+
+    def metadata(self) -> PluginMetadata:
+        return PluginMetadata(
+            id="fixed", name="Fixed", version="1.0.0", owasp_id="LLM01",
+            severity_weight=5.0,
+        )
+
+    async def payload_generator(self, profile) -> AsyncIterator[Payload]:
+        yield Payload(
+            plugin_id="fixed", owasp_id="LLM01", template_id="tpl_000",
+            content="probe",
+        )
+
+    def response_classifier(self, payload, response) -> ClassifierResult:
+        return ClassifierResult(
+            failure_mode=FailureMode.PARTIAL,
+            score=3.0,
+            confidence=self._confidence,
+            evidence_snippet=response,
+        )
+
+    def remediation(self, audience) -> str:
+        return "n/a"
+
+
+class _FakeDispatcher:
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def dispatch(self, payload, session) -> Exchange:
+        return Exchange(
+            scan_id="00000000-0000-0000-0000-000000000000",
+            payload_id=payload.id,
+            url="http://target/v1",
+            request_headers={},
+            request_body={},
+            prompt_text=payload.content,
+            status_code=200,
+            response_headers={},
+            response_body='{"x": "some ordinary answer"}',
+            response_text="some ordinary answer",
+            latency_ms=1.0,
+            timestamp="2026-09-18T00:00:00+00:00",
+        )
+
+
+async def _finding_count(factory, scan_id: uuid.UUID) -> int:
+    async with factory() as session:
+        result = await session.execute(
+            select(Finding).where(Finding.scan_id == scan_id)
+        )
+        return len(result.scalars().all())
+
+
+@pytest.mark.parametrize(
+    ("confidence", "expected_findings"),
+    [(0.50, 0), (0.60, 1)],
+    ids=["fallback-partial-dropped", "genuine-partial-kept"],
+)
+async def test_low_confidence_partial_is_not_recorded(
+    monkeypatch, factory, scan_id, confidence, expected_findings
+):
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(orchestrator, "fingerprint", AsyncMock(return_value=_profile()))
+    monkeypatch.setattr(orchestrator, "AsyncDispatcher", _FakeDispatcher)
+    register_plugin(_FixedPlugin(confidence))
+
+    await orchestrator.run_scan(
+        scan_id=scan_id,
+        target_url="http://target/v1",
+        api_key="k",
+        profile_name="standard",
+    )
+
+    assert await _finding_count(factory, scan_id) == expected_findings
+    assert await _final_status(factory, scan_id) == ScanStatus.complete
+
+
+# ---------------------------------------------------------------------------
+# score inversion (safety score -> risk score)
+# ---------------------------------------------------------------------------
+
+
+class _CompliedPlugin(AttackPlugin):
+    """One payload; classifier always reports COMPLIED with safety score 0.0."""
+
+    def metadata(self) -> PluginMetadata:
+        return PluginMetadata(
+            id="complied", name="Complied", version="1.0.0", owasp_id="LLM01",
+            severity_weight=9.0,
+        )
+
+    async def payload_generator(self, profile) -> AsyncIterator[Payload]:
+        yield Payload(
+            plugin_id="complied", owasp_id="LLM01", template_id="tpl_000",
+            content="probe",
+        )
+
+    def response_classifier(self, payload, response) -> ClassifierResult:
+        return ClassifierResult(
+            failure_mode=FailureMode.COMPLIED,
+            score=0.0,
+            confidence=0.9,
+            evidence_snippet=response,
+        )
+
+    def remediation(self, audience) -> str:
+        return "n/a"
+
+
+async def test_complied_finding_gets_high_risk_score_not_zero(
+    monkeypatch, factory, scan_id
+):
+    """A worst-case COMPLIED (safety score 0.0) must be stored as high risk (10.0),
+    not as the raw safety score — that inversion was the whole point of the fix."""
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(orchestrator, "fingerprint", AsyncMock(return_value=_profile()))
+    monkeypatch.setattr(orchestrator, "AsyncDispatcher", _FakeDispatcher)
+    register_plugin(_CompliedPlugin())
+
+    await orchestrator.run_scan(
+        scan_id=scan_id,
+        target_url="http://target/v1",
+        api_key="k",
+        profile_name="standard",
+    )
+
+    async with factory() as session:
+        result = await session.execute(
+            select(Finding).where(Finding.scan_id == scan_id)
+        )
+        finding = result.scalar_one()
+        scan_result = await session.execute(select(Scan).where(Scan.id == scan_id))
+        scan_row = scan_result.scalar_one()
+
+    assert finding.score == 10.0
+    assert scan_row.risk_score == 10.0
 
 
 # ---------------------------------------------------------------------------

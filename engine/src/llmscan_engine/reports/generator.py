@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -42,18 +43,14 @@ def _severity_band(score: float) -> str:
     return "Low"
 
 
-def _extract_payload_content(request_body: dict) -> str:
-    """Recover the raw attack payload text from a dispatched request body."""
-    messages = request_body.get("messages") or []
-    if messages and isinstance(messages[0], dict):
-        return str(messages[0].get("content", ""))
-    return ""
-
-
-def _load_exchanges(
+def load_exchanges(
     scan_id: uuid.UUID, output_dir: Path
 ) -> dict[tuple[str, str], Exchange]:
-    """Index a scan's evidence.ndjson by (payload_hash, response_hash)."""
+    """Index a scan's evidence.ndjson by (payload_hash, response_hash).
+
+    Lines that don't validate (e.g. evidence written before ``prompt_text`` /
+    ``response_text`` existed) are skipped rather than failing the whole load.
+    """
     path = output_dir / str(scan_id) / "evidence.ndjson"
     index: dict[tuple[str, str], Exchange] = {}
     if not path.exists():
@@ -62,13 +59,13 @@ def _load_exchanges(
     for line in path.read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
-        exchange = Exchange.model_validate_json(line)
-        content = _extract_payload_content(exchange.request_body)
-        if not content:
+        try:
+            exchange = Exchange.model_validate_json(line)
+        except ValidationError:
             continue
-        payload_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+        payload_hash = hashlib.sha256(exchange.prompt_text.encode()).hexdigest()[:16]
         response_hash = hashlib.sha256(
-            exchange.response_body.encode()
+            exchange.response_text.encode()
         ).hexdigest()[:16]
         index[(payload_hash, response_hash)] = exchange
 
@@ -90,10 +87,8 @@ def _enrich_finding(
             audience: plugin.remediation(audience) if plugin else ""
             for audience in ("pentester", "manager", "cxo")
         },
-        "payload_content": (
-            _extract_payload_content(exchange.request_body) if exchange else None
-        ),
-        "response_excerpt": (exchange.response_body[:500] if exchange else None),
+        "payload_content": exchange.prompt_text if exchange else None,
+        "response_excerpt": (exchange.response_text[:500] if exchange else None),
         "reproduction": (
             {
                 "method": exchange.method,
@@ -194,7 +189,7 @@ class ReportGenerator:
         )
         findings = result.scalars().all()
 
-        exchanges = _load_exchanges(scan_id, self._output_dir)
+        exchanges = load_exchanges(scan_id, self._output_dir)
         enriched = [_enrich_finding(f, exchanges) for f in findings]
 
         context: dict = {

@@ -295,3 +295,100 @@ async def test_anthropic_request_body_format(
     exchange = await d.dispatch(_payload(), session)
     assert "messages" in exchange.request_body
     assert "max_tokens" in exchange.request_body
+
+
+# ---------------------------------------------------------------------------
+# endpoint format: ollama / custom
+# ---------------------------------------------------------------------------
+
+
+def _ollama_profile() -> TargetProfile:
+    return TargetProfile(
+        provider=Provider.openai_compat,
+        base_url="https://api.example.com",
+        auth_header=f"Authorization: Bearer {_API_KEY}",
+        rate_limit_rpm=None,
+        has_system_prompt=False,
+        latency_p50_ms=100.0,
+        model_name="llama3",
+        endpoint_format="ollama",
+    )
+
+
+def _custom_profile(template: str, response_path: str) -> TargetProfile:
+    return TargetProfile(
+        provider=Provider.openai_compat,
+        base_url="https://api.example.com",
+        auth_header=f"Authorization: Bearer {_API_KEY}",
+        rate_limit_rpm=None,
+        has_system_prompt=False,
+        latency_p50_ms=100.0,
+        model_name=None,
+        endpoint_format="custom",
+        request_template=template,
+        response_path=response_path,
+    )
+
+
+async def test_ollama_request_body_omits_max_tokens(
+    httpx_mock, session, evidence_dir
+) -> None:
+    httpx_mock.add_response(json=_OPENAI_BODY)
+    d = _make_dispatcher(evidence_dir, profile=_ollama_profile())
+    exchange = await d.dispatch(_payload(), session)
+    assert exchange.request_body == {
+        "messages": [{"role": "user", "content": _payload().content}],
+        "model": "llama3",
+    }
+
+
+async def test_custom_request_body_uses_template(
+    httpx_mock, session, evidence_dir
+) -> None:
+    template = '{"message": "{prompt}", "student": "hacker01"}'
+    httpx_mock.add_response(json={"response": "flag{ok}"})
+    d = _make_dispatcher(
+        evidence_dir, profile=_custom_profile(template, "response")
+    )
+    exchange = await d.dispatch(_payload(), session)
+    assert exchange.request_body == {
+        "message": _payload().content,
+        "student": "hacker01",
+    }
+
+
+async def test_custom_response_text_extracted_via_response_path(
+    httpx_mock, session, evidence_dir
+) -> None:
+    template = '{"message": "{prompt}", "student": "hacker01"}'
+    httpx_mock.add_response(
+        json={"response": "flag{ctf_success}", "student": "hacker01"}
+    )
+    d = _make_dispatcher(
+        evidence_dir, profile=_custom_profile(template, "response")
+    )
+    exchange = await d.dispatch(_payload(), session)
+    assert exchange.response_text == "flag{ctf_success}"
+    assert "flag{ctf_success}" in exchange.response_body  # raw body still preserved
+
+
+async def test_openai_response_text_extracted_not_raw_json(
+    httpx_mock, session, evidence_dir
+) -> None:
+    httpx_mock.add_response(json=_OPENAI_BODY)
+    exchange = await _make_dispatcher(evidence_dir).dispatch(_payload(), session)
+    assert exchange.response_text == "Hello"
+    assert exchange.response_body != "Hello"  # raw body is the full JSON envelope
+
+
+async def test_prompt_text_matches_original_payload_content(
+    httpx_mock, session, evidence_dir
+) -> None:
+    template = '{"message": "{prompt}", "student": "hacker01"}'
+    httpx_mock.add_response(json={"response": "ok"})
+    d = _make_dispatcher(
+        evidence_dir, profile=_custom_profile(template, "response")
+    )
+    payload = _payload()
+    exchange = await d.dispatch(payload, session)
+    assert exchange.prompt_text == payload.content

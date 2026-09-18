@@ -34,6 +34,16 @@ export interface Finding {
   created_at: string
 }
 
+export interface FindingEvidence {
+  finding_id: string
+  prompt_text: string
+  response_text: string
+  status_code: number
+  latency_ms: number
+  url: string
+  timestamp: string
+}
+
 export interface Plugin {
   id: string
   name: string
@@ -58,6 +68,9 @@ export interface ScanCreate {
   dry_run: boolean
   use_garak: boolean
   model?: string
+  endpoint_format?: 'openai' | 'ollama' | 'custom'
+  request_template?: string
+  response_path?: string
 }
 
 export interface ReportResponse {

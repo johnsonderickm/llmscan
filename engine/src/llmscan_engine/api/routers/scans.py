@@ -38,6 +38,9 @@ async def create_scan(
             dry_run=body.dry_run,
             use_garak=body.use_garak,
             model=body.model,
+            endpoint_format=body.endpoint_format,
+            request_template=body.request_template,
+            response_path=body.response_path,
         )
     )
     register_task(scan.id, task)

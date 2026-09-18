@@ -1,4 +1,4 @@
-import type { Audience, Finding, Plugin, ReportResponse, Scan, ScanCreate } from '../types'
+import type { Audience, Finding, FindingEvidence, Plugin, ReportResponse, Scan, ScanCreate } from '../types'
 
 const BASE = '/api'
 
@@ -34,6 +34,8 @@ export const api = {
       const qs = params.toString()
       return request<Finding[]>(`/scans/${scanId}/findings${qs ? `?${qs}` : ''}`)
     },
+    evidence: (scanId: string, findingId: string) =>
+      request<FindingEvidence>(`/scans/${scanId}/findings/${findingId}/evidence`),
   },
   plugins: {
     list: () => request<Plugin[]>('/plugins'),

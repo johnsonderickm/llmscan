@@ -181,6 +181,23 @@ def scan(
         "--model",
         help="Model name sent in every request (required by Ollama/vLLM/LM Studio)",
     ),
+    endpoint_format: str = typer.Option(
+        "openai",
+        "--endpoint-format",
+        help="Request/response shape: openai | ollama | custom",
+    ),
+    request_template: Optional[str] = typer.Option(
+        None,
+        "--request-template",
+        help="Custom format only: JSON body with a {prompt} placeholder, "
+        'e.g. \'{"message": "{prompt}", "student": "hacker01"}\'',
+    ),
+    response_path: Optional[str] = typer.Option(
+        None,
+        "--response-path",
+        help="Custom format only: dot-path to the reply text in the JSON "
+        'response, e.g. "response" or "choices.0.message.content"',
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Log payloads only; send no HTTP requests"
     ),
@@ -201,6 +218,19 @@ def scan(
     ),
 ) -> None:
     """Run a scan against a target LLM endpoint."""
+    if endpoint_format not in ("openai", "ollama", "custom"):
+        console.print(
+            f"[red]Invalid --endpoint-format '{endpoint_format}'. "
+            "Choose from: openai, ollama, custom[/red]"
+        )
+        raise typer.Exit(code=1)
+    if endpoint_format == "custom" and not (request_template and response_path):
+        console.print(
+            "[red]--endpoint-format custom requires both --request-template "
+            "and --response-path[/red]"
+        )
+        raise typer.Exit(code=1)
+
     try:
         scan_profile = load_profile(profile)
     except ValueError as exc:
@@ -225,10 +255,19 @@ def scan(
         init_registry()
 
         if json_output:
-            target_profile = await fingerprint(target, api_key, model)
+            target_profile = await fingerprint(
+                target, api_key, model, endpoint_format, request_template, response_path
+            )
         else:
             with console.status("Fingerprinting target endpoint…"):
-                target_profile = await fingerprint(target, api_key, model)
+                target_profile = await fingerprint(
+                    target,
+                    api_key,
+                    model,
+                    endpoint_format,
+                    request_template,
+                    response_path,
+                )
 
         registered = all_plugins()
         plugins = (

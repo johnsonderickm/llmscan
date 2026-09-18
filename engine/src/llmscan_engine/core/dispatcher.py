@@ -15,7 +15,12 @@ from tenacity import (
     wait_exponential,
 )
 
-from llmscan_engine.core.connector import Provider, TargetProfile
+from llmscan_engine.core.connector import (
+    Provider,
+    TargetProfile,
+    build_request_body,
+    extract_response_text,
+)
 from llmscan_engine.db.models import ScanEvent
 from llmscan_engine.plugins.schemas import Payload
 
@@ -29,9 +34,11 @@ class Exchange(BaseModel):
     url: str
     request_headers: dict[str, str]
     request_body: dict
+    prompt_text: str
     status_code: int
     response_headers: dict[str, str]
     response_body: str
+    response_text: str
     latency_ms: float
     timestamp: str
 
@@ -143,40 +150,54 @@ class AsyncDispatcher:
                         resp.raise_for_status()
 
         assert last_response is not None
+        response_text = extract_response_text(
+            last_response.text,
+            self._profile.response_path,
+            self._profile.endpoint_format,
+        )
         return Exchange(
             scan_id=self._scan_id,
             payload_id=payload.id,
             url=self._target_url,
             request_headers=self._redact_headers(headers),
             request_body=body,
+            prompt_text=payload.content,
             status_code=last_response.status_code,
             response_headers=dict(last_response.headers),
             response_body=last_response.text,
+            response_text=response_text,
             latency_ms=last_latency,
             timestamp=datetime.now(timezone.utc).isoformat(),
         )
 
     def _build_request(self, payload: Payload) -> tuple[dict, dict]:
         """Build a provider-appropriate request body and auth headers."""
-        if self._profile.provider == Provider.anthropic:
-            body: dict = {
+        if self._profile.endpoint_format == "custom":
+            body = build_request_body(
+                payload.content,
+                "custom",
+                self._profile.model_name,
+                self._profile.request_template,
+            )
+        elif self._profile.provider == Provider.anthropic:
+            body = {
                 "max_tokens": 1024,
                 "messages": [{"role": "user", "content": payload.content}],
             }
             if self._profile.model_name:
                 body["model"] = self._profile.model_name
+        else:
+            body = build_request_body(
+                payload.content, self._profile.endpoint_format, self._profile.model_name
+            )
+
+        if self._profile.provider == Provider.anthropic:
             headers = {
                 "x-api-key": self._api_key,
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             }
         else:
-            body = {
-                "messages": [{"role": "user", "content": payload.content}],
-                "max_tokens": 1024,
-            }
-            if self._profile.model_name:
-                body["model"] = self._profile.model_name
             headers = {
                 "Authorization": f"Bearer {self._api_key}",
                 "content-type": "application/json",

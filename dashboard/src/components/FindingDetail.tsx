@@ -1,8 +1,7 @@
-import 'diff2html/bundles/css/diff2html.min.css'
-import { createTwoFilesPatch } from 'diff'
-import { html as diff2html } from 'diff2html'
-import type { Finding } from '../types'
+import { useEffect, useState } from 'react'
+import type { Finding, FindingEvidence } from '../types'
 import { useApp } from '../context/AppContext'
+import { api } from '../lib/api'
 
 const REMEDIATION: Record<string, Record<string, string>> = {
   pentester: {
@@ -51,19 +50,19 @@ interface Props {
 export function FindingDetail({ finding, onClose }: Props) {
   const { state } = useApp()
   const audience = state.audience
-
   const remediation = REMEDIATION[audience]?.[finding.owasp_id] ?? 'No remediation guidance available.'
 
-  // Build a simple diff showing payload hash vs response hash as stand-ins
-  const patch = createTwoFilesPatch(
-    'payload.txt',
-    'response.txt',
-    `[payload hash: ${finding.payload_hash}]`,
-    `[response hash: ${finding.response_hash}]`,
-    'Payload',
-    'Response'
-  )
-  const diffHtml = diff2html(patch, { drawFileList: false, matching: 'lines', outputFormat: 'side-by-side' })
+  const [evidence, setEvidence] = useState<FindingEvidence | null>(null)
+  const [evidenceError, setEvidenceError] = useState<string | null>(null)
+
+  useEffect(() => {
+    setEvidence(null)
+    setEvidenceError(null)
+    api.findings
+      .evidence(finding.scan_id, finding.id)
+      .then(setEvidence)
+      .catch(err => setEvidenceError(err instanceof Error ? err.message : 'Evidence unavailable'))
+  }, [finding.scan_id, finding.id])
 
   return (
     <div
@@ -87,24 +86,30 @@ export function FindingDetail({ finding, onClose }: Props) {
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Metadata row */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
-            <MetaCell label="CVSS score" value={`${finding.score.toFixed(1)}/10`} />
+            <MetaCell label="Risk score" value={`${finding.score.toFixed(1)}/10`} />
             <MetaCell label="MITRE Atlas" value={finding.mitre_atlas_id ?? '—'} />
-            <MetaCell label="Payload hash" value={finding.payload_hash} mono />
-            <MetaCell label="Response hash" value={finding.response_hash} mono />
+            <MetaCell label="HTTP status" value={evidence ? String(evidence.status_code) : '—'} />
+            <MetaCell label="Latency" value={evidence ? `${evidence.latency_ms.toFixed(0)} ms` : '—'} />
           </div>
 
-          {/* Diff view */}
-          <div>
-            <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>Evidence hashes</h3>
-            <div
-              className="text-xs overflow-x-auto rounded-lg"
-              dangerouslySetInnerHTML={{ __html: diffHtml }}
-            />
-          </div>
+          {evidenceError && (
+            <p className="text-sm p-3 rounded-lg" style={{ background: 'var(--color-bg)', color: 'var(--color-muted)' }}>
+              {evidenceError}
+            </p>
+          )}
 
-          {/* Remediation */}
+          {!evidence && !evidenceError && (
+            <p className="text-sm" style={{ color: 'var(--color-muted)' }}>Loading evidence…</p>
+          )}
+
+          {evidence && (
+            <>
+              <TextBlock label="Prompt sent" text={evidence.prompt_text} />
+              <TextBlock label="Model response" text={evidence.response_text} />
+            </>
+          )}
+
           <div className="p-4 rounded-lg border-l-4" style={{ background: 'var(--color-bg)', borderLeftColor: 'var(--color-accent)' }}>
             <h3 className="text-sm font-semibold mb-1" style={{ color: 'var(--color-text)' }}>
               Remediation ({audience})
@@ -112,22 +117,34 @@ export function FindingDetail({ finding, onClose }: Props) {
             <p className="text-sm" style={{ color: 'var(--color-muted)' }}>{remediation}</p>
           </div>
 
-          {finding.evidence_path && (
-            <p className="text-xs font-mono" style={{ color: 'var(--color-muted)' }}>
-              Evidence: {finding.evidence_path}
-            </p>
-          )}
+          <p className="text-xs font-mono" style={{ color: 'var(--color-muted)' }}>
+            payload {finding.payload_hash} · response {finding.response_hash}
+          </p>
         </div>
       </div>
     </div>
   )
 }
 
-function MetaCell({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function TextBlock({ label, text }: { label: string; text: string }) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--color-text)' }}>{label}</h3>
+      <pre
+        className="text-xs p-3 rounded-lg border whitespace-pre-wrap break-words max-h-64 overflow-y-auto"
+        style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+      >
+        {text}
+      </pre>
+    </div>
+  )
+}
+
+function MetaCell({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <p className="text-xs mb-0.5" style={{ color: 'var(--color-muted)' }}>{label}</p>
-      <p className={`text-sm font-semibold truncate ${mono ? 'font-mono' : ''}`} style={{ color: 'var(--color-text)' }}>{value}</p>
+      <p className="text-sm font-semibold truncate" style={{ color: 'var(--color-text)' }}>{value}</p>
     </div>
   )
 }

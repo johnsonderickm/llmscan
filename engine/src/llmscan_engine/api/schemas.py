@@ -16,6 +16,9 @@ class ScanCreate(BaseModel):
     dry_run: bool = False
     use_garak: bool = True
     model: Optional[str] = None
+    endpoint_format: str = "openai"
+    request_template: Optional[str] = None
+    response_path: Optional[str] = None
 
 
 class ScanRead(BaseModel):
@@ -48,6 +51,18 @@ class FindingRead(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class FindingEvidence(BaseModel):
+    """The actual prompt/response behind a finding, pulled from evidence.ndjson."""
+
+    finding_id: uuid.UUID
+    prompt_text: str
+    response_text: str
+    status_code: int
+    latency_ms: float
+    url: str
+    timestamp: str
 
 
 class PluginRead(BaseModel):

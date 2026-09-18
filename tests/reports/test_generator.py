@@ -51,9 +51,11 @@ def _write_evidence(
         url="http://target/v1/chat/completions",
         request_headers={},
         request_body={"messages": [{"role": "user", "content": payload_content}]},
+        prompt_text=payload_content,
         status_code=200,
         response_headers={},
         response_body=response_body,
+        response_text=response_body,
         latency_ms=123.4,
         timestamp=datetime.now(timezone.utc).isoformat(),
     )

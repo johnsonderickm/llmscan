@@ -1,13 +1,15 @@
 import uuid
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from llmscan_engine.api.schemas import FindingRead
+from llmscan_engine.api.schemas import FindingEvidence, FindingRead
 from llmscan_engine.db.database import get_session
 from llmscan_engine.db.models import FailureMode, Finding, Scan
+from llmscan_engine.reports.generator import load_exchanges
 
 router = APIRouter(tags=["findings"])
 
@@ -42,3 +44,37 @@ async def get_findings(
 
     result = await session.execute(stmt)
     return [FindingRead.model_validate(f) for f in result.scalars().all()]
+
+
+@router.get(
+    "/scans/{scan_id}/findings/{finding_id}/evidence",
+    response_model=FindingEvidence,
+)
+async def get_finding_evidence(
+    scan_id: uuid.UUID,
+    finding_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+) -> FindingEvidence:
+    """Return the real prompt and response text behind a finding."""
+    finding = await session.get(Finding, finding_id)
+    if not finding or finding.scan_id != scan_id:
+        raise HTTPException(status_code=404, detail="Finding not found")
+
+    exchange = load_exchanges(scan_id, Path("reports/output")).get(
+        (finding.payload_hash, finding.response_hash)
+    )
+    if exchange is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No evidence recorded for this finding (evidence file missing "
+            "or written by an older version).",
+        )
+    return FindingEvidence(
+        finding_id=finding.id,
+        prompt_text=exchange.prompt_text,
+        response_text=exchange.response_text,
+        status_code=exchange.status_code,
+        latency_ms=exchange.latency_ms,
+        url=exchange.url,
+        timestamp=exchange.timestamp,
+    )

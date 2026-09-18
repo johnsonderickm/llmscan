@@ -4,6 +4,11 @@ import { api } from '../lib/api'
 import { useApp } from '../context/AppContext'
 
 const PROFILES = ['quick', 'standard', 'full'] as const
+const ENDPOINT_FORMATS = [
+  { value: 'openai', label: 'OpenAI', desc: '{messages: [{role, content}]} — OpenAI, most cloud APIs' },
+  { value: 'ollama', label: 'Ollama', desc: '{model, messages} — Ollama, vLLM, LM Studio' },
+  { value: 'custom', label: 'Custom', desc: 'Define your own request/response shape' },
+] as const
 
 export function ScanSetup() {
   const { dispatch } = useApp()
@@ -12,6 +17,9 @@ export function ScanSetup() {
   const [targetUrl, setTargetUrl] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('')
+  const [endpointFormat, setEndpointFormat] = useState<'openai' | 'ollama' | 'custom'>('openai')
+  const [requestTemplate, setRequestTemplate] = useState('')
+  const [responsePath, setResponsePath] = useState('')
   const [profile, setProfile] = useState<string>('standard')
   const [useGarak, setUseGarak] = useState(true)
   const [dryRun, setDryRun] = useState(false)
@@ -20,6 +28,10 @@ export function ScanSetup() {
 
   async function handleLaunch(e: React.FormEvent) {
     e.preventDefault()
+    if (endpointFormat === 'custom' && (!requestTemplate.trim() || !responsePath.trim())) {
+      setError('Custom format requires both a request template and a response path.')
+      return
+    }
     setLoading(true)
     setError(null)
     try {
@@ -30,6 +42,9 @@ export function ScanSetup() {
         dry_run: dryRun,
         use_garak: useGarak,
         model: model.trim() || undefined,
+        endpoint_format: endpointFormat,
+        request_template: endpointFormat === 'custom' ? requestTemplate.trim() : undefined,
+        response_path: endpointFormat === 'custom' ? responsePath.trim() : undefined,
       })
       dispatch({ type: 'ADD_SCAN', payload: scan })
       dispatch({ type: 'SET_ACTIVE_SCAN', payload: scan.id })
@@ -81,6 +96,56 @@ export function ScanSetup() {
             style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
           />
         </Field>
+
+        <Field label="Endpoint format">
+          <select
+            value={endpointFormat}
+            onChange={e => setEndpointFormat(e.target.value as 'openai' | 'ollama' | 'custom')}
+            className="w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2"
+            style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+          >
+            {ENDPOINT_FORMATS.map(f => (
+              <option key={f.value} value={f.value}>{f.label}</option>
+            ))}
+          </select>
+          <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
+            {ENDPOINT_FORMATS.find(f => f.value === endpointFormat)?.desc}
+          </p>
+        </Field>
+
+        {endpointFormat === 'custom' && (
+          <>
+            <Field label="Request template">
+              <textarea
+                required
+                rows={2}
+                placeholder='{"message": "{prompt}", "student": "hacker01"}'
+                value={requestTemplate}
+                onChange={e => setRequestTemplate(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border text-sm font-mono focus:outline-none focus:ring-2"
+                style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+              />
+              <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
+                JSON body sent to the target. <code>{'{prompt}'}</code> is replaced with each attack payload (safely JSON-escaped).
+              </p>
+            </Field>
+
+            <Field label="Response path">
+              <input
+                type="text"
+                required
+                placeholder="response  or  choices.0.message.content"
+                value={responsePath}
+                onChange={e => setResponsePath(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg border text-sm font-mono focus:outline-none focus:ring-2"
+                style={{ background: 'var(--color-bg)', borderColor: 'var(--color-border)', color: 'var(--color-text)' }}
+              />
+              <p className="text-xs mt-1" style={{ color: 'var(--color-muted)' }}>
+                Dot-notation path to the reply text in the target's JSON response. Use numbers for list indices, e.g. <code>choices.0.message.content</code>.
+              </p>
+            </Field>
+          </>
+        )}
 
         <Field label="Scan profile">
           <div className="flex gap-2">

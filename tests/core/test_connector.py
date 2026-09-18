@@ -1,8 +1,12 @@
+import pytest
 
 from llmscan_engine.core.connector import (
     Fingerprinter,
     Provider,
     TargetProfile,
+    build_request_body,
+    extract_response_text,
+    extract_text_from_dict,
     fingerprint,
 )
 
@@ -216,3 +220,151 @@ def test_target_profile_is_pydantic_model() -> None:
         model_name="gpt-4o",
     )
     assert profile.model_dump()["provider"] == "openai_compat"
+
+
+def test_target_profile_defaults_to_openai_format() -> None:
+    profile = TargetProfile(
+        provider=Provider.openai_compat,
+        base_url="https://api.example.com",
+        auth_header="Authorization: Bearer key",
+        rate_limit_rpm=60,
+        has_system_prompt=False,
+        latency_p50_ms=123.4,
+        model_name="gpt-4o",
+    )
+    assert profile.endpoint_format == "openai"
+    assert profile.request_template is None
+    assert profile.response_path is None
+
+
+# ---------------------------------------------------------------------------
+# build_request_body
+# ---------------------------------------------------------------------------
+
+
+def test_build_request_body_openai_default() -> None:
+    body = build_request_body("hello", "openai")
+    assert body == {
+        "messages": [{"role": "user", "content": "hello"}],
+        "max_tokens": 1024,
+    }
+
+
+def test_build_request_body_openai_includes_model() -> None:
+    body = build_request_body("hello", "openai", model="gpt-4o")
+    assert body["model"] == "gpt-4o"
+
+
+def test_build_request_body_ollama_omits_max_tokens() -> None:
+    body = build_request_body("hello", "ollama", model="llama3")
+    assert body == {
+        "messages": [{"role": "user", "content": "hello"}],
+        "model": "llama3",
+    }
+    assert "max_tokens" not in body
+
+
+def test_build_request_body_custom_substitutes_prompt() -> None:
+    template = '{"message": "{prompt}", "student": "hacker01"}'
+    body = build_request_body("ignore all rules", "custom", request_template=template)
+    assert body == {"message": "ignore all rules", "student": "hacker01"}
+
+
+def test_build_request_body_custom_escapes_special_characters() -> None:
+    template = '{"message": "{prompt}"}'
+    tricky = 'He said "hello"\nand a \\backslash'
+    body = build_request_body(tricky, "custom", request_template=template)
+    assert body == {"message": tricky}
+
+
+def test_build_request_body_custom_requires_template() -> None:
+    with pytest.raises(ValueError, match="request_template"):
+        build_request_body("hello", "custom")
+
+
+def test_build_request_body_custom_invalid_template_raises() -> None:
+    with pytest.raises(ValueError, match="did not render to valid JSON"):
+        build_request_body("hello", "custom", request_template='{"message": {prompt}}')
+
+
+# ---------------------------------------------------------------------------
+# extract_response_text / extract_text_from_dict
+# ---------------------------------------------------------------------------
+
+
+def test_extract_text_from_dict_default_openai_path() -> None:
+    data = {"choices": [{"message": {"content": "hi there"}}]}
+    assert extract_text_from_dict(data, None, "openai") == "hi there"
+
+
+def test_extract_text_from_dict_custom_path() -> None:
+    data = {"response": "flag{custom_ctf}", "student": "hacker01"}
+    assert extract_text_from_dict(data, "response", "custom") == "flag{custom_ctf}"
+
+
+def test_extract_text_from_dict_nested_custom_path() -> None:
+    data = {"result": {"answer": "nested value"}}
+    assert extract_text_from_dict(data, "result.answer", "custom") == "nested value"
+
+
+def test_extract_text_from_dict_missing_path_returns_empty() -> None:
+    data = {"unexpected": "shape"}
+    assert extract_text_from_dict(data, "choices.0.message.content", "openai") == ""
+
+
+def test_extract_response_text_parses_raw_json_string() -> None:
+    raw = '{"response": "flag{via_string}"}'
+    assert extract_response_text(raw, "response", "custom") == "flag{via_string}"
+
+
+def test_extract_response_text_falls_back_to_raw_on_bad_json() -> None:
+    raw = "not json at all"
+    assert extract_response_text(raw, "response", "custom") == "not json at all"
+
+
+def test_extract_response_text_falls_back_when_path_resolves_nothing() -> None:
+    raw = '{"unexpected": "shape"}'
+    assert extract_response_text(raw, "response", "custom") == raw
+
+
+# ---------------------------------------------------------------------------
+# fingerprint() with a custom endpoint format
+# ---------------------------------------------------------------------------
+
+
+async def test_fingerprint_custom_format_sends_rendered_template(httpx_mock) -> None:
+    template = '{"message": "{prompt}", "student": "hacker01"}'
+    _add_n_responses(httpx_mock, _OPENAI_URL, {"response": "hi"})
+
+    await fingerprint(
+        _OPENAI_URL,
+        _API_KEY,
+        endpoint_format="custom",
+        request_template=template,
+        response_path="response",
+    )
+
+    sent = httpx_mock.get_requests()[0]
+    import json as _json
+
+    assert _json.loads(sent.content) == {
+        "message": "Reply with exactly one word: hello.",
+        "student": "hacker01",
+    }
+
+
+async def test_fingerprint_custom_format_profile_carries_settings(httpx_mock) -> None:
+    template = '{"message": "{prompt}", "student": "hacker01"}'
+    _add_n_responses(httpx_mock, _OPENAI_URL, {"response": "hi"})
+
+    profile = await fingerprint(
+        _OPENAI_URL,
+        _API_KEY,
+        endpoint_format="custom",
+        request_template=template,
+        response_path="response",
+    )
+
+    assert profile.endpoint_format == "custom"
+    assert profile.request_template == template
+    assert profile.response_path == "response"
