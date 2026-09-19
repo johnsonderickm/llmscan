@@ -374,4 +374,4 @@ its dependencies installed.
 | 11 | React dashboard | Done |
 | 12 | Report generator, 3 audiences | Done |
 | 13 | CLI polish, scan profiles, safety controls | Done |
-| 14 | Plugin registry and community extensibility | Not started |
+| 14 | Plugin registry and community extensibility |  |
