@@ -74,3 +74,25 @@ async def test_update_plugins_reloads_registry(client):
     data = resp.json()
     assert "count" in data
     assert data["count"] >= 10
+
+
+async def test_update_plugins_offline_by_default_makes_no_network_calls(
+    client, httpx_mock
+):
+    resp = await client.post("/api/plugins/update")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["downloaded"] == []
+    assert data["errors"] == []
+    assert len(httpx_mock.get_requests()) == 0
+
+
+async def test_update_plugins_with_unreachable_registry_url(client, httpx_mock):
+    httpx_mock.add_response(url="https://example.invalid/index.json", status_code=503)
+    resp = await client.post(
+        "/api/plugins/update",
+        params={"registry_url": "https://example.invalid/index.json"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert any("Could not fetch manifest" in e for e in data["errors"])

@@ -19,6 +19,7 @@ from llmscan_engine.db.models import Finding, Scan, ScanEvent, ScanStatus
 from llmscan_engine.plugins.base import AttackPlugin
 from llmscan_engine.plugins.garak_loader import set_garak_enabled
 from llmscan_engine.plugins.registry import all_plugins, clear_registry, init_registry
+from llmscan_engine.plugins.registry_remote import sync_registry
 from llmscan_engine.profiles.loader import load_profile
 from llmscan_engine.reports.generator import ReportGenerator
 
@@ -432,11 +433,45 @@ def plugins_list(
 
 
 @plugins_app.command("update")
-def plugins_update() -> None:
-    """Reload the plugin registry from disk (built-in + community plugins/)."""
+def plugins_update(
+    registry_url: Optional[str] = typer.Option(
+        None,
+        "--registry-url",
+        envvar="LLMSCAN_PLUGIN_REGISTRY_URL",
+        help="Remote manifest URL to sync community plugins from "
+        "(omit to only reload built-in + already-staged plugins/)",
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Print JSON instead of text"
+    ),
+) -> None:
+    """Sync community plugins from a registry manifest, then reload the registry."""
+    result = asyncio.run(sync_registry(manifest_url=registry_url))
     clear_registry()
     init_registry()
     count = len(all_plugins())
+
+    if json_output:
+        print(
+            json.dumps(
+                {
+                    "downloaded": result.downloaded,
+                    "skipped": result.skipped,
+                    "errors": result.errors,
+                    "plugin_count": count,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    if result.downloaded:
+        console.print(
+            f"[green]Downloaded {len(result.downloaded)} plugin(s):[/green] "
+            f"{', '.join(result.downloaded)}"
+        )
+    for err in result.errors:
+        console.print(f"[yellow]Warning:[/yellow] {err}")
     console.print(f"[green]Registry reloaded.[/green] {count} plugin(s) loaded.")
 
 

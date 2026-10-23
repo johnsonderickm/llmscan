@@ -9,6 +9,11 @@ _registry: Dict[str, AttackPlugin] = {}
 
 _BUILTIN_DIR = Path(__file__).parent / "builtin"
 
+# Repo-root `plugins/` drop folder for community plugins (see CLAUDE.md
+# monorepo layout): engine/src/llmscan_engine/plugins/ -> engine/src -> engine
+# -> repo root -> plugins.
+COMMUNITY_PLUGINS_DIR = Path(__file__).resolve().parents[4] / "plugins"
+
 
 def _load_plugin_from_path(path: Path) -> Optional[AttackPlugin]:
     """Load a module file and return the first concrete AttackPlugin found."""
@@ -40,10 +45,16 @@ def _load_from_directory(directory: Path) -> None:
 
 
 def init_registry(community_dir: Optional[Path] = None) -> None:
-    """Load built-in plugins and optionally community plugins into the registry."""
+    """Load built-in plugins, then auto-discover community plugins.
+
+    `community_dir` defaults to the repo-root `plugins/` drop folder so any
+    plugin staged there (e.g. by `registry_remote.sync_registry()`) is picked
+    up without extra configuration.
+    """
     _load_from_directory(_BUILTIN_DIR)
-    if community_dir is not None:
-        _load_from_directory(community_dir)
+    if community_dir is None:
+        community_dir = COMMUNITY_PLUGINS_DIR
+    _load_from_directory(community_dir)
 
 
 def register_plugin(plugin: AttackPlugin) -> None:
