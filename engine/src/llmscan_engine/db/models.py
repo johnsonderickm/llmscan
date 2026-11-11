@@ -65,6 +65,10 @@ class Finding(SQLModel, table=True):
     response_hash: str
     evidence_path: Optional[str] = None
     simulated: bool = Field(default=False)
+    # Classifier confidence (0–1) and the layer that decided the verdict
+    # (1 plugin, 2 embeddings, 3 Garak, 4 judge). None on pre-Phase-B rows.
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    decided_by_layer: Optional[int] = None
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

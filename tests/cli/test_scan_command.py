@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 import llmscan_engine.api.orchestrator as orchestrator
 import llmscan_engine.cli.main as cli_main
 from llmscan_engine.cli.main import _get_api_key, app
+from llmscan_engine.core.config import Settings
 from llmscan_engine.core.connector import Provider, TargetProfile
 from llmscan_engine.db.models import Scan, ScanStatus
 from llmscan_engine.plugins.registry import clear_registry
@@ -75,14 +76,57 @@ def test_scan_invalid_profile_exits_1():
 
 
 def test_scan_offline_with_judge_key_configured_fails(monkeypatch):
-    class _FakeSettings:
-        judge_api_key = "sk-configured"
-
-    monkeypatch.setattr(cli_main, "get_settings", lambda: _FakeSettings())
+    monkeypatch.setattr(
+        cli_main,
+        "get_settings",
+        lambda: Settings(_env_file=None, judge_api_key="sk-configured"),
+    )
     result = runner.invoke(
         app, ["scan", "--target", "http://x", "--key", "k", "--offline"]
     )
     assert result.exit_code == 1
+    assert "non-local endpoint" in result.stdout
+
+
+def test_scan_offline_with_local_judge_is_allowed(monkeypatch, factory):
+    monkeypatch.setattr(
+        cli_main,
+        "get_settings",
+        lambda: Settings(_env_file=None, judge_base_url="http://localhost:11434/v1"),
+    )
+    monkeypatch.setattr(cli_main, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(cli_main, "fingerprint", AsyncMock(return_value=_profile()))
+    monkeypatch.setattr(cli_main, "keyring", _FakeKeyring())
+
+    result = runner.invoke(
+        app,
+        [
+            "scan", "--target", "http://target/v1", "--key", "k",
+            "--profile", "quick", "--dry-run", "--offline",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "Scan complete" in result.stdout
+
+
+def test_scan_seed_is_passed_through(monkeypatch, factory):
+    monkeypatch.setattr(cli_main, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(cli_main, "fingerprint", AsyncMock(return_value=_profile()))
+    monkeypatch.setattr(cli_main, "keyring", _FakeKeyring())
+
+    result = runner.invoke(
+        app,
+        [
+            "scan", "--target", "http://target/v1", "--key", "k",
+            "--profile", "quick", "--dry-run", "--seed", "4242",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert "seed=4242" in result.stdout
 
 
 def test_scan_missing_key_and_nothing_in_keyring_exits_1(monkeypatch):

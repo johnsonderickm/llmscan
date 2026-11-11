@@ -21,6 +21,7 @@ class ScanCreate(BaseModel):
     response_path: Optional[str] = None
     system_prompt: Optional[str] = None
     headers: Optional[dict[str, str]] = None
+    seed: Optional[int] = None
 
 
 class ScanRead(BaseModel):

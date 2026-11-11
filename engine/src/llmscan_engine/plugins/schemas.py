@@ -27,6 +27,12 @@ class Payload(BaseModel):
     template_id: str
     content: str
     mutation_index: int = 0
+    # Per-payload canary token planted in the attack (or in the system prompt
+    # for LLM07). Its presence in the response is a deterministic verdict.
+    canary: Optional[str] = None
+    # Overrides the target profile's system prompt for this one request
+    # (LLM07 plants a canary-bearing system prompt this way).
+    system_prompt: Optional[str] = None
 
 
 class ClassifierResult(BaseModel):
@@ -37,3 +43,7 @@ class ClassifierResult(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_snippet: str
     simulated: bool = False
+    # True when the verdict comes from a deterministic signal (a canary token
+    # found or provably absent) rather than a heuristic. The classifier treats
+    # a deterministic Layer 1 verdict as authoritative and skips other layers.
+    deterministic: bool = False

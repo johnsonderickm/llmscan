@@ -180,7 +180,7 @@ class AsyncDispatcher:
 
     def _build_request(self, payload: Payload) -> tuple[dict, dict]:
         """Build a provider-appropriate request body and auth headers."""
-        system_prompt = self._profile.system_prompt
+        system_prompt = payload.system_prompt or self._profile.system_prompt
         tools = self._profile.tools
 
         if self._profile.endpoint_format == "custom":

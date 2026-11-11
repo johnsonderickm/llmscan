@@ -11,6 +11,7 @@ from rich.table import Table
 from sqlmodel import select
 
 from llmscan_engine.api.orchestrator import run_scan
+from llmscan_engine.core.classifier import judge_is_external
 from llmscan_engine.core.config import get_settings
 from llmscan_engine.core.connector import TargetProfile, fingerprint
 from llmscan_engine.db.database import _AsyncSessionFactory, engine
@@ -219,7 +220,13 @@ def scan(
         False,
         "--offline",
         help="Assert no external calls will be made "
-        "(fails if a judge API key is configured)",
+        "(fails if the LLM judge points at a non-local URL)",
+    ),
+    seed: Optional[int] = typer.Option(
+        None,
+        "--seed",
+        help="RNG seed for payloads and canary tokens (reproducible scans). "
+        "Omit for a random seed; it is printed in the scan_start event.",
     ),
     yes: bool = typer.Option(
         False, "--yes", "-y", help="Skip the >100-request confirmation prompt"
@@ -249,11 +256,11 @@ def scan(
         raise typer.Exit(code=1) from None
 
     settings = get_settings()
-    if offline and settings.judge_api_key:
+    if offline and judge_is_external(settings):
         console.print(
-            "[red]--offline was set but LLMSCAN_JUDGE_API_KEY is configured, "
-            "which requires an external network call. Unset it or drop "
-            "--offline.[/red]"
+            "[red]--offline was set but the LLM judge is configured to call a "
+            "non-local endpoint. Point LLMSCAN_JUDGE_BASE_URL at a local "
+            "server, unset LLMSCAN_JUDGE_API_KEY, or drop --offline.[/red]"
         )
         raise typer.Exit(code=1)
 
@@ -359,6 +366,7 @@ def scan(
                 dry_run=dry_run,
                 use_garak=use_garak_override,
                 target_profile=target_profile,
+                seed=seed,
             )
         )
         final_scan = await _poll_until_done(scan_id, quiet=json_output)

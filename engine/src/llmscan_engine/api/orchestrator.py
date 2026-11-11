@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import secrets
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,10 +9,12 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from llmscan_engine.core.classifier import Classifier
+from llmscan_engine.core.canary import set_scan_seed
+from llmscan_engine.core.classifier import Classifier, is_undecided
 from llmscan_engine.core.config import get_settings
 from llmscan_engine.core.connector import TargetProfile, fingerprint
 from llmscan_engine.core.dispatcher import AsyncDispatcher
+from llmscan_engine.core.risk import overall_risk
 from llmscan_engine.db.database import _AsyncSessionFactory
 from llmscan_engine.db.models import (
     FailureMode,
@@ -27,8 +30,6 @@ from llmscan_engine.plugins.registry import all_plugins
 from llmscan_engine.profiles.loader import load_profile
 
 _running_tasks: dict[uuid.UUID, asyncio.Task] = {}
-
-_MIN_PARTIAL_CONFIDENCE = 0.6
 
 
 def register_task(scan_id: uuid.UUID, task: asyncio.Task) -> None:
@@ -64,6 +65,7 @@ async def run_scan(
     response_path: Optional[str] = None,
     system_prompt: Optional[str] = None,
     extra_headers: Optional[dict[str, str]] = None,
+    seed: Optional[int] = None,
 ) -> None:
     """Background task: fingerprint, run plugins, classify responses, save findings.
 
@@ -72,12 +74,23 @@ async def run_scan(
     lets a caller that already fingerprinted the target (e.g. to estimate
     request volume) skip re-fingerprinting here — in that case *system_prompt*
     / *extra_headers* are ignored since they're already baked into it.
+
+    *seed* makes payloads and canary tokens reproducible; when omitted a
+    random seed is drawn and recorded in the ``scan_start`` event so the scan
+    can still be replayed.
     """
     async with _AsyncSessionFactory() as session:
         try:
+            if seed is None:
+                seed = secrets.randbelow(2**31)
+            set_scan_seed(seed)
+
             await _set_status(session, scan_id, ScanStatus.running)
             await _emit(
-                session, scan_id, "scan_start", f"Scan started — target: {target_url}"
+                session,
+                scan_id,
+                "scan_start",
+                f"Scan started — target: {target_url} (seed={seed})",
             )
 
             # Fingerprint (unless the caller already did it)
@@ -177,19 +190,12 @@ async def run_scan(
                         payload, exchange.response_text, plugin
                     )
 
-                    # Every plugin's "no signal matched" fallback is PARTIAL at
-                    # confidence 0.50; genuine partial detections are >= 0.60.
-                    # Recording the fallback as a finding produces a wall of
-                    # 3.0-scored false positives, so treat it (and an explicit
-                    # INCONCLUSIVE verdict) as inconclusive rather than a
-                    # finding. TODO(Phase B/C): once plugins emit
-                    # FailureMode.INCONCLUSIVE directly for this case instead
-                    # of PARTIAL@0.50, the confidence check becomes dead code
-                    # and can be dropped.
-                    if result.failure_mode == FailureMode.INCONCLUSIVE or (
-                        result.failure_mode == FailureMode.PARTIAL
-                        and result.confidence < _MIN_PARTIAL_CONFIDENCE
-                    ):
+                    # INCONCLUSIVE, or a legacy plugin's PARTIAL@0.50 "no signal
+                    # matched" fallback that no other layer could decide, is not
+                    # a finding — recording it produced a wall of 3.0-scored
+                    # false positives. (The legacy case goes away once every
+                    # plugin emits INCONCLUSIVE directly, in Phase C.)
+                    if is_undecided(result):
                         inconclusive += 1
                         continue
 
@@ -202,7 +208,7 @@ async def run_scan(
                             failure_mode=result.failure_mode,
                             # Plugins return a *safety* score (10 = safely
                             # refused, 0 = fully complied — see Classifier
-                            # docs: "lower score = more severe" wins a merge).
+                            # docs).
                             # Finding.score is a *risk* score everywhere it's
                             # displayed (dashboard, reports): higher = worse.
                             # Invert once, here, at the single boundary
@@ -216,6 +222,8 @@ async def run_scan(
                                 / "evidence.ndjson"
                             ),
                             simulated=result.simulated,
+                            confidence=result.confidence,
+                            decided_by_layer=result.decided_by,
                         )
                         session.add(finding)
                         await session.commit()
@@ -225,7 +233,9 @@ async def run_scan(
                             scan_id,
                             "finding",
                             f"[{meta.owasp_id}] {result.failure_mode.value} "
-                            f"score={result.score:.1f}",
+                            f"risk={finding.score:.1f} "
+                            f"conf={result.confidence:.2f} "
+                            f"layer={result.decided_by}",
                         )
 
                 plugin_findings = sum(1 for f in findings if f.plugin_id == meta.id)
@@ -255,7 +265,7 @@ async def run_scan(
                     f"{errors} error(s) ({run_status.value})",
                 )
 
-            risk_score = max((f.score for f in findings), default=0.0)
+            risk_score = overall_risk(findings)
 
             result_row = await session.execute(select(Scan).where(Scan.id == scan_id))
             scan = result_row.scalar_one()

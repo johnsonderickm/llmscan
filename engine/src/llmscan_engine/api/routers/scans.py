@@ -43,6 +43,7 @@ async def create_scan(
             response_path=body.response_path,
             system_prompt=body.system_prompt,
             extra_headers=body.headers,
+            seed=body.seed,
         )
     )
     register_task(scan.id, task)

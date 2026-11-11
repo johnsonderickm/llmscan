@@ -18,6 +18,7 @@ from llmscan_engine.db.models import (
     PluginRun,
     PluginRunStatus,
     Scan,
+    ScanEvent,
     ScanStatus,
 )
 from llmscan_engine.plugins.base import AttackPlugin
@@ -370,6 +371,109 @@ async def test_complied_finding_gets_high_risk_score_not_zero(
 
     assert finding.score == 10.0
     assert scan_row.risk_score == 10.0
+    assert finding.confidence == pytest.approx(0.9)
+    assert finding.decided_by_layer == 1
+
+
+# ---------------------------------------------------------------------------
+# risk capping (core/risk.py) + seed recording
+# ---------------------------------------------------------------------------
+
+
+class _ConfigurableCompliedPlugin(_CompliedPlugin):
+    """COMPLIED with a configurable confidence / simulated flag."""
+
+    def __init__(self, confidence: float, simulated: bool) -> None:
+        self._confidence = confidence
+        self._simulated = simulated
+
+    def response_classifier(self, payload, response) -> ClassifierResult:
+        return ClassifierResult(
+            failure_mode=FailureMode.COMPLIED,
+            score=0.0,
+            confidence=self._confidence,
+            evidence_snippet=response,
+            simulated=self._simulated,
+        )
+
+
+async def _scan_row(factory, scan_id: uuid.UUID) -> Scan:
+    async with factory() as session:
+        result = await session.execute(select(Scan).where(Scan.id == scan_id))
+        return result.scalar_one()
+
+
+@pytest.mark.parametrize(
+    ("confidence", "simulated", "expected_risk"),
+    [(0.95, False, 10.0), (0.65, False, 6.9), (0.95, True, 6.9)],
+    ids=["confident-real", "low-confidence-capped", "simulated-capped"],
+)
+async def test_scan_risk_caps_low_confidence_and_simulated(
+    monkeypatch, factory, scan_id, confidence, simulated, expected_risk
+):
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(orchestrator, "fingerprint", AsyncMock(return_value=_profile()))
+    monkeypatch.setattr(orchestrator, "AsyncDispatcher", _FakeDispatcher)
+    register_plugin(_ConfigurableCompliedPlugin(confidence, simulated))
+
+    await orchestrator.run_scan(
+        scan_id=scan_id,
+        target_url="http://target/v1",
+        api_key="k",
+        profile_name="standard",
+    )
+
+    assert (await _scan_row(factory, scan_id)).risk_score == pytest.approx(
+        expected_risk
+    )
+
+
+async def _scan_start_message(factory, scan_id: uuid.UUID) -> str:
+    async with factory() as session:
+        result = await session.execute(
+            select(ScanEvent).where(
+                ScanEvent.scan_id == scan_id, ScanEvent.event_type == "scan_start"
+            )
+        )
+        return result.scalar_one().message
+
+
+async def test_explicit_seed_is_recorded_and_applied(monkeypatch, factory, scan_id):
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    seed_mock = Mock()
+    monkeypatch.setattr(orchestrator, "set_scan_seed", seed_mock)
+
+    await orchestrator.run_scan(
+        scan_id=scan_id,
+        target_url="http://target/v1",
+        api_key="k",
+        profile_name="quick",
+        dry_run=True,
+        target_profile=_profile(),
+        seed=42,
+    )
+
+    seed_mock.assert_called_once_with(42)
+    assert "seed=42" in await _scan_start_message(factory, scan_id)
+
+
+async def test_missing_seed_is_generated_and_recorded(monkeypatch, factory, scan_id):
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    seed_mock = Mock()
+    monkeypatch.setattr(orchestrator, "set_scan_seed", seed_mock)
+
+    await orchestrator.run_scan(
+        scan_id=scan_id,
+        target_url="http://target/v1",
+        api_key="k",
+        profile_name="quick",
+        dry_run=True,
+        target_profile=_profile(),
+    )
+
+    (generated,) = seed_mock.call_args.args
+    assert isinstance(generated, int)
+    assert f"seed={generated}" in await _scan_start_message(factory, scan_id)
 
 
 # ---------------------------------------------------------------------------

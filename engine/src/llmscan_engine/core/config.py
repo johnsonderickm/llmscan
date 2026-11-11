@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     scan_profile: str = "standard"
     judge_api_key: Optional[str] = None
     judge_model: Optional[str] = None
+    # OpenAI-compatible base URL for the LLM-as-judge, e.g.
+    # http://localhost:11434/v1 for a local Ollama judge. Unset = OpenAI.
+    judge_base_url: Optional[str] = None
 
 
 _settings: Optional[Settings] = None
