@@ -46,14 +46,16 @@ async def client(session):
 
     app.dependency_overrides[get_session] = _override_session
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
 
 @pytest_asyncio.fixture
 async def no_scan():
     """Patch run_scan so background tasks don't fire real HTTP during tests."""
-    with patch("llmscan_engine.api.routers.scans.run_scan", new_callable=AsyncMock) as m:
+    target = "llmscan_engine.api.routers.scans.run_scan"
+    with patch(target, new_callable=AsyncMock) as m:
         yield m
 
 
@@ -108,7 +110,11 @@ async def test_create_scan_default_profile(client, no_scan):
 async def test_get_scan_after_create(client, no_scan):
     create = await client.post(
         "/api/scans",
-        json={"target_url": "http://target/v1/chat", "api_key": "key", "profile": "quick"},
+        json={
+            "target_url": "http://target/v1/chat",
+            "api_key": "key",
+            "profile": "quick",
+        },
     )
     scan_id = create.json()["id"]
 

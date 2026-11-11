@@ -1,4 +1,4 @@
-# LLM10 Multimodal Injection — built-in template library.
+# LLM01 Multimodal Prompt Injection — built-in template library.
 # Text-based simulation of image/audio injection attacks.
 # For vision-capable endpoints, payloads embed hidden instructions in image descriptions.
 # For text-only endpoints, these test susceptibility to described multimodal injections.

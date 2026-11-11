@@ -70,33 +70,37 @@ _REFUSAL_SIGNALS: list[str] = [
 
 
 def _all_templates() -> list[str]:
-    """Load YAML templates; fall back to built-in list. No Garak module for LLM10."""
-    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm10_multimodal.yaml")
+    """Load YAML templates; fall back to the built-in list (no Garak module fits)."""
+    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm01_multimodal.yaml")
     return yaml_tpl if yaml_tpl else list(_TEMPLATES)
 
 
-class LLM10MultimodalInjection(AttackPlugin):
+class LLM01MultimodalInjection(AttackPlugin):
     """
-    LLM10 — Multimodal Injection.
+    LLM01 — Prompt Injection (multimodal variant).
     Probes whether instructions embedded in described image content, OCR text,
-    or alt-text can hijack the model's behaviour.
+    or alt-text can hijack the model's behaviour — the OWASP LLM Top 10 (2025)
+    folds multimodal injection under LLM01 rather than treating it as its own
+    category.
 
     For vision-capable endpoints this tests real image injection; for text-only
     endpoints it tests susceptibility to described multimodal injection scenarios.
+    Results here are simulated (text-described, not real image bytes) unless the
+    target is a genuine vision endpoint.
     """
 
-    _PLUGIN_ID = "llm10_multimodal"
+    _PLUGIN_ID = "llm01_multimodal"
 
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata."""
         return PluginMetadata(
             id=self._PLUGIN_ID,
-            name="LLM10 Multimodal Injection",
+            name="LLM01 Multimodal Prompt Injection",
             version="1.0.0",
-            owasp_id="LLM10",
+            owasp_id="LLM01",
             mitre_atlas_id="AML.T0051",
             severity_weight=8.0,
-            tags=["multimodal", "vision", "injection", "ocr", "llm10"],
+            tags=["multimodal", "vision", "injection", "ocr", "llm01"],
         )
 
     async def payload_generator(

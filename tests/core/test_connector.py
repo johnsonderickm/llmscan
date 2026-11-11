@@ -29,10 +29,18 @@ _ANTHROPIC_RESPONSE = {
 }
 
 
-def _add_n_responses(httpx_mock, url: str, json_body: dict, n: int = 3, headers: dict | None = None) -> None:
+def _add_n_responses(
+    httpx_mock,
+    url: str,
+    json_body: dict,
+    n: int = 3,
+    headers: dict | None = None,
+) -> None:
     """Register n identical mock responses for the same URL."""
     for _ in range(n):
-        httpx_mock.add_response(method="POST", url=url, json=json_body, headers=headers or {})
+        httpx_mock.add_response(
+            method="POST", url=url, json=json_body, headers=headers or {}
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -133,10 +141,16 @@ async def test_rate_limit_none_when_header_absent(httpx_mock) -> None:
 
 async def test_no_system_prompt_on_diverse_responses(httpx_mock) -> None:
     """High lexical diversity across probes → has_system_prompt is False."""
+    def _reply(text: str) -> dict:
+        return {
+            **_OPENAI_RESPONSE,
+            "choices": [{"message": {"role": "assistant", "content": text}}],
+        }
+
     diverse = [
-        {**_OPENAI_RESPONSE, "choices": [{"message": {"role": "assistant", "content": "hello there friend"}}]},
-        {**_OPENAI_RESPONSE, "choices": [{"message": {"role": "assistant", "content": "the answer is two"}}]},
-        {**_OPENAI_RESPONSE, "choices": [{"message": {"role": "assistant", "content": "repeating after you: test"}}]},
+        _reply("hello there friend"),
+        _reply("the answer is two"),
+        _reply("repeating after you: test"),
     ]
     for body in diverse:
         httpx_mock.add_response(method="POST", url=_OPENAI_URL, json=body)
@@ -148,7 +162,10 @@ async def test_no_system_prompt_on_diverse_responses(httpx_mock) -> None:
 async def test_system_prompt_detected_on_uniform_responses(httpx_mock) -> None:
     """Low lexical diversity (repeated boilerplate) → has_system_prompt is True."""
     boilerplate = "I apologize but I can only discuss cooking topics with you today"
-    uniform = {**_OPENAI_RESPONSE, "choices": [{"message": {"role": "assistant", "content": boilerplate}}]}
+    uniform = {
+        **_OPENAI_RESPONSE,
+        "choices": [{"message": {"role": "assistant", "content": boilerplate}}],
+    }
     _add_n_responses(httpx_mock, _OPENAI_URL, uniform)
 
     profile = await fingerprint(_OPENAI_URL, _API_KEY)
@@ -179,12 +196,14 @@ async def test_anthropic_auth_header(httpx_mock) -> None:
 
 def test_hint_from_url_anthropic() -> None:
     fp = Fingerprinter()
-    assert fp._hint_from_url("https://api.anthropic.com/v1/messages") == Provider.anthropic
+    hint = fp._hint_from_url("https://api.anthropic.com/v1/messages")
+    assert hint == Provider.anthropic
 
 
 def test_hint_from_url_openai() -> None:
     fp = Fingerprinter()
-    assert fp._hint_from_url("https://api.openai.com/v1/chat/completions") == Provider.openai_compat
+    hint = fp._hint_from_url("https://api.openai.com/v1/chat/completions")
+    assert hint == Provider.openai_compat
 
 
 def test_detect_system_prompt_low_variance() -> None:

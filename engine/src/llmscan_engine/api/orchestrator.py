@@ -16,6 +16,8 @@ from llmscan_engine.db.database import _AsyncSessionFactory
 from llmscan_engine.db.models import (
     FailureMode,
     Finding,
+    PluginRun,
+    PluginRunStatus,
     Scan,
     ScanEvent,
     ScanStatus,
@@ -60,13 +62,16 @@ async def run_scan(
     endpoint_format: str = "openai",
     request_template: Optional[str] = None,
     response_path: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> None:
     """Background task: fingerprint, run plugins, classify responses, save findings.
 
     ``use_garak=None`` defers to the scan profile's own ``use_garak`` setting;
     pass True/False to override it (e.g. CLI ``--no-garak``). ``target_profile``
     lets a caller that already fingerprinted the target (e.g. to estimate
-    request volume) skip re-fingerprinting here.
+    request volume) skip re-fingerprinting here — in that case *system_prompt*
+    / *extra_headers* are ignored since they're already baked into it.
     """
     async with _AsyncSessionFactory() as session:
         try:
@@ -90,6 +95,8 @@ async def run_scan(
                     endpoint_format,
                     request_template,
                     response_path,
+                    system_prompt,
+                    extra_headers,
                 )
             model_label = target_profile.model_name or "unknown"
             await _emit(
@@ -144,6 +151,7 @@ async def run_scan(
                 )
 
                 count = 0
+                errors = 0
                 inconclusive = 0
                 async for payload in plugin.payload_generator(target_profile):
                     if (
@@ -158,6 +166,13 @@ async def run_scan(
                     if exchange is None:  # dry_run
                         continue
 
+                    # A non-2xx response (auth failure, bad request, server
+                    # error) is not a model answer — never hand it to a
+                    # classifier, just count it as an error for this plugin.
+                    if not (200 <= exchange.status_code < 300):
+                        errors += 1
+                        continue
+
                     result = await classifier.classify(
                         payload, exchange.response_text, plugin
                     )
@@ -165,8 +180,13 @@ async def run_scan(
                     # Every plugin's "no signal matched" fallback is PARTIAL at
                     # confidence 0.50; genuine partial detections are >= 0.60.
                     # Recording the fallback as a finding produces a wall of
-                    # 3.0-scored false positives, so treat it as inconclusive.
-                    if (
+                    # 3.0-scored false positives, so treat it (and an explicit
+                    # INCONCLUSIVE verdict) as inconclusive rather than a
+                    # finding. TODO(Phase B/C): once plugins emit
+                    # FailureMode.INCONCLUSIVE directly for this case instead
+                    # of PARTIAL@0.50, the confidence check becomes dead code
+                    # and can be dropped.
+                    if result.failure_mode == FailureMode.INCONCLUSIVE or (
                         result.failure_mode == FailureMode.PARTIAL
                         and result.confidence < _MIN_PARTIAL_CONFIDENCE
                     ):
@@ -195,6 +215,7 @@ async def run_scan(
                                 / str(scan_id)
                                 / "evidence.ndjson"
                             ),
+                            simulated=result.simulated,
                         )
                         session.add(finding)
                         await session.commit()
@@ -208,12 +229,30 @@ async def run_scan(
                         )
 
                 plugin_findings = sum(1 for f in findings if f.plugin_id == meta.id)
+                run_status = (
+                    PluginRunStatus.ERROR
+                    if count > 0 and errors / count > 0.5
+                    else PluginRunStatus.TESTED
+                )
+                session.add(
+                    PluginRun(
+                        scan_id=scan_id,
+                        plugin_id=meta.id,
+                        owasp_id=meta.owasp_id,
+                        status=run_status,
+                        payloads_sent=count,
+                        errors=errors,
+                        findings=plugin_findings,
+                    )
+                )
+                await session.commit()
                 await _emit(
                     session,
                     scan_id,
                     "plugin_complete",
                     f"Plugin {meta.name}: {count} payloads sent, "
-                    f"{plugin_findings} finding(s), {inconclusive} inconclusive",
+                    f"{plugin_findings} finding(s), {inconclusive} inconclusive, "
+                    f"{errors} error(s) ({run_status.value})",
                 )
 
             risk_score = max((f.score for f in findings), default=0.0)

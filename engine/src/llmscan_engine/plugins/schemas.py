@@ -36,3 +36,4 @@ class ClassifierResult(BaseModel):
     score: float = Field(ge=0.0, le=10.0)
     confidence: float = Field(ge=0.0, le=1.0)
     evidence_snippet: str
+    simulated: bool = False

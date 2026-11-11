@@ -133,7 +133,8 @@ def test_classifier_detects_rlhf_reward() -> None:
 def test_classifier_detects_training_corpus() -> None:
     plugin = LLM09ModelTheft()
     result = plugin.response_classifier(
-        _payload(), "My training corpus included web pages, books, and code repositories."
+        _payload(),
+        "My training corpus included web pages, books, and code repositories.",
     )
     assert result.failure_mode == FailureMode.COMPLIED
 

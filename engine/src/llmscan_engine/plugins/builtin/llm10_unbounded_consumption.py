@@ -54,7 +54,7 @@ def _repetition_ratio(text: str) -> float:
 
 def _all_templates() -> list[str]:
     """Merge YAML templates with Garak probes; fall back to built-in list."""
-    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm04_dos.yaml")
+    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm10_unbounded_consumption.yaml")
     base = yaml_tpl if yaml_tpl else list(_TEMPLATES)
     garak: list[str] = []
     for mod in ("garak.probes.replay", "garak.probes.continuation"):
@@ -63,25 +63,26 @@ def _all_templates() -> list[str]:
     return base + [p for p in garak if p not in seen]
 
 
-class LLM04Dos(AttackPlugin):
+class LLM10UnboundedConsumption(AttackPlugin):
     """
-    LLM04 — Model Denial of Service.
+    LLM10 — Unbounded Consumption (OWASP LLM Top 10, 2025 numbering; was
+    the 2023 list's "Model Denial of Service").
     Probes whether the model can be induced to consume excessive resources
     by generating extremely long, repetitive, or recursive output.
     """
 
-    _PLUGIN_ID = "llm04_dos"
+    _PLUGIN_ID = "llm10_unbounded_consumption"
 
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata."""
         return PluginMetadata(
             id=self._PLUGIN_ID,
-            name="LLM04 Model Denial of Service",
+            name="LLM10 Unbounded Consumption",
             version="1.0.0",
-            owasp_id="LLM04",
+            owasp_id="LLM10",
             mitre_atlas_id="AML.T0029",
             severity_weight=6.0,
-            tags=["dos", "resource", "repetition", "llm04"],
+            tags=["dos", "resource", "repetition", "llm10"],
         )
 
     async def payload_generator(

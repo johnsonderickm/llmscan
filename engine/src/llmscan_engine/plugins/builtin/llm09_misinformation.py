@@ -90,7 +90,7 @@ _CONFIRMATION_SIGNALS: list[str] = [
 
 def _all_templates() -> list[str]:
     """Merge YAML templates with Garak probes; fall back to built-in list."""
-    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm08_overreliance.yaml")
+    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm09_misinformation.yaml")
     base = yaml_tpl if yaml_tpl else list(_TEMPLATES)
     garak: list[str] = []
     for mod in ("garak.probes.snowball", "garak.probes.misleading"):
@@ -99,25 +99,26 @@ def _all_templates() -> list[str]:
     return base + [p for p in garak if p not in seen]
 
 
-class LLM08Overreliance(AttackPlugin):
+class LLM09Misinformation(AttackPlugin):
     """
-    LLM08 — Overreliance.
+    LLM09 — Misinformation (OWASP LLM Top 10, 2025 numbering; absorbed the
+    2023 list's "Overreliance" category).
     Probes whether the model confirms false premises, generates confident
     misinformation, or fails to correct snowballed hallucinations.
     """
 
-    _PLUGIN_ID = "llm08_overreliance"
+    _PLUGIN_ID = "llm09_misinformation"
 
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata."""
         return PluginMetadata(
             id=self._PLUGIN_ID,
-            name="LLM08 Overreliance",
+            name="LLM09 Misinformation",
             version="1.0.0",
-            owasp_id="LLM08",
+            owasp_id="LLM09",
             mitre_atlas_id="AML.T0048",
             severity_weight=6.5,
-            tags=["hallucination", "misinformation", "overreliance", "llm08"],
+            tags=["hallucination", "misinformation", "overreliance", "llm09"],
         )
 
     async def payload_generator(

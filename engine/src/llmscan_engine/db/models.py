@@ -23,6 +23,14 @@ class FailureMode(str, Enum):
     HALLUCINATED_REFUSAL = "HALLUCINATED_REFUSAL"
     REFUSED = "REFUSED"
     FALSE_POSITIVE = "FALSE_POSITIVE"
+    INCONCLUSIVE = "INCONCLUSIVE"
+
+
+class PluginRunStatus(str, Enum):
+    TESTED = "TESTED"
+    NOT_APPLICABLE = "NOT_APPLICABLE"
+    ERROR = "ERROR"
+    SKIPPED = "SKIPPED"
 
 
 class Scan(SQLModel, table=True):
@@ -40,6 +48,7 @@ class Scan(SQLModel, table=True):
 
     findings: List["Finding"] = Relationship(back_populates="scan")
     events: List["ScanEvent"] = Relationship(back_populates="scan")
+    plugin_runs: List["PluginRun"] = Relationship(back_populates="scan")
 
 
 class Finding(SQLModel, table=True):
@@ -55,6 +64,7 @@ class Finding(SQLModel, table=True):
     payload_hash: str
     response_hash: str
     evidence_path: Optional[str] = None
+    simulated: bool = Field(default=False)
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -86,3 +96,26 @@ class ScanEvent(SQLModel, table=True):
     )
 
     scan: Optional[Scan] = Relationship(back_populates="events")
+
+
+class PluginRun(SQLModel, table=True):
+    """Per-plugin execution summary for one scan.
+
+    Lets reports and the dashboard distinguish "clean" (tested, no findings)
+    from "not tested" / "not applicable" / "errored" — a category with no
+    plugin run row, or one with the wrong status, must never render as Clean.
+    """
+
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    scan_id: uuid.UUID = Field(foreign_key="scan.id", index=True)
+    plugin_id: str
+    owasp_id: str
+    status: PluginRunStatus
+    payloads_sent: int = Field(default=0)
+    errors: int = Field(default=0)
+    findings: int = Field(default=0)
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    scan: Optional[Scan] = Relationship(back_populates="plugin_runs")

@@ -12,7 +12,14 @@ from sqlmodel import SQLModel, select
 from llmscan_engine.api import orchestrator
 from llmscan_engine.core.connector import Provider, TargetProfile
 from llmscan_engine.core.dispatcher import Exchange
-from llmscan_engine.db.models import FailureMode, Finding, Scan, ScanStatus
+from llmscan_engine.db.models import (
+    FailureMode,
+    Finding,
+    PluginRun,
+    PluginRunStatus,
+    Scan,
+    ScanStatus,
+)
 from llmscan_engine.plugins.base import AttackPlugin
 from llmscan_engine.plugins.registry import clear_registry, register_plugin
 from llmscan_engine.plugins.schemas import ClassifierResult, Payload, PluginMetadata
@@ -193,6 +200,115 @@ async def test_low_confidence_partial_is_not_recorded(
 
     assert await _finding_count(factory, scan_id) == expected_findings
     assert await _final_status(factory, scan_id) == ScanStatus.complete
+
+
+# ---------------------------------------------------------------------------
+# HTTP errors are never classified; PluginRun tracks per-plugin status
+# ---------------------------------------------------------------------------
+
+
+class _AlwaysErrorPlugin(AttackPlugin):
+    """Two payloads; the fake dispatcher below answers both with HTTP 500."""
+
+    def metadata(self) -> PluginMetadata:
+        return PluginMetadata(
+            id="always_error", name="AlwaysError", version="1.0.0",
+            owasp_id="LLM01", severity_weight=5.0,
+        )
+
+    async def payload_generator(self, profile) -> AsyncIterator[Payload]:
+        for i in range(2):
+            yield Payload(
+                plugin_id="always_error", owasp_id="LLM01",
+                template_id=f"tpl_{i:03d}", content="probe",
+            )
+
+    def response_classifier(self, payload, response) -> ClassifierResult:
+        # Should never be called: both exchanges are non-2xx.
+        raise AssertionError("classifier must not run on an error exchange")
+
+    def remediation(self, audience) -> str:
+        return "n/a"
+
+
+class _ErrorExchangeDispatcher:
+    """Fake AsyncDispatcher whose every exchange is an HTTP 500 response."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        pass
+
+    async def dispatch(self, payload, session) -> Exchange:
+        return Exchange(
+            scan_id="00000000-0000-0000-0000-000000000000",
+            payload_id=payload.id,
+            url="http://target/v1",
+            request_headers={},
+            request_body={},
+            prompt_text=payload.content,
+            status_code=500,
+            response_headers={},
+            response_body="internal server error",
+            response_text="internal server error",
+            latency_ms=1.0,
+            timestamp="2026-09-18T00:00:00+00:00",
+        )
+
+
+async def _plugin_run(factory, scan_id: uuid.UUID, plugin_id: str) -> PluginRun:
+    async with factory() as session:
+        result = await session.execute(
+            select(PluginRun).where(
+                PluginRun.scan_id == scan_id, PluginRun.plugin_id == plugin_id
+            )
+        )
+        return result.scalar_one()
+
+
+async def test_error_exchange_is_never_classified_and_plugin_run_is_error(
+    monkeypatch, factory, scan_id
+):
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(orchestrator, "fingerprint", AsyncMock(return_value=_profile()))
+    monkeypatch.setattr(orchestrator, "AsyncDispatcher", _ErrorExchangeDispatcher)
+    register_plugin(_AlwaysErrorPlugin())
+
+    await orchestrator.run_scan(
+        scan_id=scan_id,
+        target_url="http://target/v1",
+        api_key="k",
+        profile_name="standard",
+    )
+
+    # response_classifier would raise if it were ever called on an error
+    # exchange, so reaching here (scan completed) already proves it wasn't.
+    assert await _finding_count(factory, scan_id) == 0
+    run = await _plugin_run(factory, scan_id, "always_error")
+    assert run.status == PluginRunStatus.ERROR
+    assert run.payloads_sent == 2
+    assert run.errors == 2
+    assert run.findings == 0
+
+
+async def test_plugin_run_is_tested_when_all_exchanges_succeed(
+    monkeypatch, factory, scan_id
+):
+    monkeypatch.setattr(orchestrator, "_AsyncSessionFactory", factory)
+    monkeypatch.setattr(orchestrator, "fingerprint", AsyncMock(return_value=_profile()))
+    monkeypatch.setattr(orchestrator, "AsyncDispatcher", _FakeDispatcher)
+    register_plugin(_FixedPlugin(0.9))
+
+    await orchestrator.run_scan(
+        scan_id=scan_id,
+        target_url="http://target/v1",
+        api_key="k",
+        profile_name="standard",
+    )
+
+    run = await _plugin_run(factory, scan_id, "fixed")
+    assert run.status == PluginRunStatus.TESTED
+    assert run.payloads_sent == 1
+    assert run.errors == 0
+    assert run.findings == 1
 
 
 # ---------------------------------------------------------------------------

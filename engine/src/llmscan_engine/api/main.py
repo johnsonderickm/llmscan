@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from llmscan_engine.api.routers import findings, plugins, reports, scans
+from llmscan_engine.api.routers import findings, plugins, reports, scans, taxonomy
 from llmscan_engine.api.ws.feed import router as ws_router
 from llmscan_engine.db.init_db import init_db
 from llmscan_engine.plugins.registry import init_registry
@@ -40,6 +40,7 @@ def create_app() -> FastAPI:
     app.include_router(findings.router, prefix="/api")
     app.include_router(plugins.router, prefix="/api")
     app.include_router(reports.router, prefix="/api")
+    app.include_router(taxonomy.router, prefix="/api")
     app.include_router(ws_router)
 
     # Serve generated report files (HTML/PDF) so the dashboard can view them

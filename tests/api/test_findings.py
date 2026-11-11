@@ -49,13 +49,16 @@ async def client(session):
 
     app.dependency_overrides[get_session] = _override_session
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
 
 @pytest_asyncio.fixture
 async def scan_with_findings(session):
-    scan = Scan(target_url="http://target/v1", profile="quick", status=ScanStatus.complete)
+    scan = Scan(
+        target_url="http://target/v1", profile="quick", status=ScanStatus.complete
+    )
     session.add(scan)
     await session.commit()
     await session.refresh(scan)

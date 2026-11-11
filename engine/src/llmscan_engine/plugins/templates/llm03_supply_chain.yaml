@@ -1,4 +1,4 @@
-# LLM05 Supply Chain Vulnerabilities — built-in template library.
+# LLM03 Supply Chain — built-in template library.
 # Probes for base model identity, training data sources, fine-tuning details,
 # and known backdoor trigger phrases in the model supply chain.
 templates:

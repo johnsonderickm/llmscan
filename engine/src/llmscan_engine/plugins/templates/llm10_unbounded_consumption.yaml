@@ -1,4 +1,4 @@
-# LLM04 Model Denial of Service — built-in template library.
+# LLM10 Unbounded Consumption — built-in template library.
 # Probes whether the model can be induced to consume excessive resources
 # by generating extremely long, recursive, or repetitive output.
 templates:

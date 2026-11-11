@@ -117,11 +117,19 @@ class AsyncDispatcher:
                 )
                 raise
 
-            await self._emit_event(
-                session,
-                "probe_complete",
-                f"HTTP {exchange.status_code} in {exchange.latency_ms:.0f} ms",
-            )
+            if 200 <= exchange.status_code < 300:
+                await self._emit_event(
+                    session,
+                    "probe_complete",
+                    f"HTTP {exchange.status_code} in {exchange.latency_ms:.0f} ms",
+                )
+            else:
+                await self._emit_event(
+                    session,
+                    "probe_error",
+                    f"HTTP {exchange.status_code} in {exchange.latency_ms:.0f} ms "
+                    "— not sent to classifier",
+                )
             await asyncio.to_thread(self._append_evidence, exchange)
             return exchange
 
@@ -172,12 +180,16 @@ class AsyncDispatcher:
 
     def _build_request(self, payload: Payload) -> tuple[dict, dict]:
         """Build a provider-appropriate request body and auth headers."""
+        system_prompt = self._profile.system_prompt
+        tools = self._profile.tools
+
         if self._profile.endpoint_format == "custom":
             body = build_request_body(
                 payload.content,
                 "custom",
                 self._profile.model_name,
                 self._profile.request_template,
+                system_prompt=system_prompt,
             )
         elif self._profile.provider == Provider.anthropic:
             body = {
@@ -186,9 +198,17 @@ class AsyncDispatcher:
             }
             if self._profile.model_name:
                 body["model"] = self._profile.model_name
+            if system_prompt:
+                body["system"] = system_prompt
+            if tools:
+                body["tools"] = tools
         else:
             body = build_request_body(
-                payload.content, self._profile.endpoint_format, self._profile.model_name
+                payload.content,
+                self._profile.endpoint_format,
+                self._profile.model_name,
+                system_prompt=system_prompt,
+                tools=tools,
             )
 
         if self._profile.provider == Provider.anthropic:
@@ -202,6 +222,8 @@ class AsyncDispatcher:
                 "Authorization": f"Bearer {self._api_key}",
                 "content-type": "application/json",
             }
+        for key, value in self._profile.extra_headers.items():
+            headers.setdefault(key, value)
         return body, headers
 
     def _redact_headers(self, headers: dict[str, str]) -> dict[str, str]:

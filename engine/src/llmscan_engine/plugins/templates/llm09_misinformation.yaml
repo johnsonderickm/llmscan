@@ -1,4 +1,4 @@
-# LLM08 Overreliance — built-in template library.
+# LLM09 Misinformation — built-in template library.
 # Probes whether the model confirms false premises, generates confident misinformation,
 # or fails to correct erroneous claims (snowball hallucination pattern).
 templates:

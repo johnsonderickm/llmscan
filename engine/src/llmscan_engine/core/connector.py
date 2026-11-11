@@ -6,7 +6,7 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class Provider(str, Enum):
@@ -38,6 +38,16 @@ class TargetProfile(BaseModel):
     endpoint_format: str = "openai"
     request_template: Optional[str] = None
     response_path: Optional[str] = None
+    #: System prompt sent with every probe/attack request (e.g. a canary
+    #: sentence for LLM07 system-prompt-leakage testing). None = no system
+    #: message is sent, matching pre-Phase-14 behaviour.
+    system_prompt: Optional[str] = None
+    #: OpenAI-style tool definitions for LLM06 tool-calling mode (wired up
+    #: in a later phase; the field only carries the value through for now).
+    tools: Optional[list[dict]] = None
+    #: Extra headers merged into every request (CLI ``--header "K: V"``,
+    #: repeatable). Never overrides Authorization/x-api-key/content-type.
+    extra_headers: dict[str, str] = Field(default_factory=dict)
 
 
 def _resolve_json_path(data: Any, path: str) -> Any:
@@ -92,41 +102,55 @@ def build_request_body(
     model: Optional[str] = None,
     request_template: Optional[str] = None,
     max_tokens: int = 1024,
+    system_prompt: Optional[str] = None,
+    tools: Optional[list[dict]] = None,
 ) -> dict:
     """Build the JSON request body to send to the target, per endpoint format.
 
-    - "openai": ``{"messages": [...], "max_tokens": N, "model"?: ...}``
-    - "ollama": ``{"messages": [...], "model"?: ...}`` (no ``max_tokens`` —
-      Ollama's OpenAI-compat layer accepts it but many native setups don't
-      need it and some strict proxies reject unknown fields)
-    - "custom": *request_template* is a JSON string with a ``{prompt}``
-      placeholder inside a string value; *content* is safely JSON-escaped
-      before substitution so quotes/newlines in attack payloads can't break
-      the template's structure.
+    - "openai": ``{"messages": [...], "max_tokens": N, "model"?: ..., "tools"?: ...}``,
+      with a leading ``{"role": "system", ...}`` message when *system_prompt* is set.
+    - "ollama": same shape minus ``max_tokens`` — Ollama's OpenAI-compat
+      layer accepts it but many native setups don't need it and some
+      strict proxies reject unknown fields.
+    - "custom": *request_template* is a JSON string with ``{prompt}`` and
+      optionally ``{system_prompt}`` placeholders inside string values;
+      both are safely JSON-escaped before substitution so quotes/newlines
+      in attack payloads can't break the template's structure.
     """
     if endpoint_format == "custom":
         if not request_template:
             raise ValueError("custom endpoint format requires a request_template")
         escaped = json.dumps(content)[1:-1]
         rendered = request_template.replace("{prompt}", escaped)
+        if "{system_prompt}" in rendered:
+            escaped_system = json.dumps(system_prompt or "")[1:-1]
+            rendered = rendered.replace("{system_prompt}", escaped_system)
         try:
             return json.loads(rendered)
         except json.JSONDecodeError as exc:
             raise ValueError(
                 f"request_template did not render to valid JSON: {exc}"
             ) from exc
+
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": content})
+
     if endpoint_format == "ollama":
-        body: dict = {"messages": [{"role": "user", "content": content}]}
+        body: dict = {"messages": messages}
         if model:
             body["model"] = model
+        if tools:
+            body["tools"] = tools
         return body
+
     # openai (default)
-    body = {
-        "messages": [{"role": "user", "content": content}],
-        "max_tokens": max_tokens,
-    }
+    body = {"messages": messages, "max_tokens": max_tokens}
     if model:
         body["model"] = model
+    if tools:
+        body["tools"] = tools
     return body
 
 
@@ -150,6 +174,8 @@ class Fingerprinter:
         endpoint_format: str = "openai",
         request_template: Optional[str] = None,
         response_path: Optional[str] = None,
+        system_prompt: Optional[str] = None,
+        extra_headers: Optional[dict[str, str]] = None,
     ) -> TargetProfile:
         """Probe the target and return its TargetProfile.
 
@@ -157,6 +183,8 @@ class Fingerprinter:
         (Ollama, vLLM, LM Studio) reject requests without it with HTTP 400.
         *endpoint_format* / *request_template* / *response_path* configure a
         non-standard target (see ``build_request_body`` / ``extract_response_text``).
+        *system_prompt* / *extra_headers* are carried into every probe and
+        stored on the returned TargetProfile for later attack requests.
         """
         hint = self._hint_from_url(target_url)
 
@@ -167,9 +195,14 @@ class Fingerprinter:
         async with httpx.AsyncClient(timeout=30.0) as client:
             for message in self._PROBE_MESSAGES:
                 body = self._build_request(
-                    message, hint, model, endpoint_format, request_template
+                    message,
+                    hint,
+                    model,
+                    endpoint_format,
+                    request_template,
+                    system_prompt,
                 )
-                headers = self._build_headers(api_key, hint)
+                headers = self._build_headers(api_key, hint, extra_headers)
 
                 t0 = time.perf_counter()
                 resp = await client.post(target_url, json=body, headers=headers)
@@ -205,6 +238,8 @@ class Fingerprinter:
             endpoint_format=endpoint_format,
             request_template=request_template,
             response_path=response_path,
+            system_prompt=system_prompt,
+            extra_headers=extra_headers or {},
         )
 
     def _hint_from_url(self, url: str) -> Provider:
@@ -221,30 +256,49 @@ class Fingerprinter:
         model: Optional[str] = None,
         endpoint_format: str = "openai",
         request_template: Optional[str] = None,
+        system_prompt: Optional[str] = None,
     ) -> dict:
         """Build a minimal probe request body suited to the endpoint format."""
         if endpoint_format == "custom":
-            return build_request_body(message, "custom", model, request_template)
+            return build_request_body(
+                message, "custom", model, request_template, system_prompt=system_prompt
+            )
         if hint == Provider.anthropic:
-            return {
+            body: dict = {
                 "model": model or "claude-3-haiku-20240307",
                 "max_tokens": 64,
                 "messages": [{"role": "user", "content": message}],
             }
-        return build_request_body(message, endpoint_format, model, max_tokens=64)
+            if system_prompt:
+                body["system"] = system_prompt
+            return body
+        return build_request_body(
+            message, endpoint_format, model, max_tokens=64, system_prompt=system_prompt
+        )
 
-    def _build_headers(self, api_key: str, hint: Provider) -> dict:
-        """Build authentication headers suited to the provider hint."""
+    def _build_headers(
+        self,
+        api_key: str,
+        hint: Provider,
+        extra_headers: Optional[dict[str, str]] = None,
+    ) -> dict:
+        """Build authentication headers suited to the provider hint, merging
+        in any user-supplied *extra_headers* (never overriding auth/content-type)."""
         if hint == Provider.anthropic:
-            return {
+            headers = {
                 "x-api-key": api_key,
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             }
-        return {
-            "Authorization": f"Bearer {api_key}",
-            "content-type": "application/json",
-        }
+        else:
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "content-type": "application/json",
+            }
+        if extra_headers:
+            for key, value in extra_headers.items():
+                headers.setdefault(key, value)
+        return headers
 
     def _detect_provider(self, body: dict, hint: Provider) -> Provider:
         """Confirm the provider from the response body structure."""
@@ -321,8 +375,17 @@ async def fingerprint(
     endpoint_format: str = "openai",
     request_template: Optional[str] = None,
     response_path: Optional[str] = None,
+    system_prompt: Optional[str] = None,
+    extra_headers: Optional[dict[str, str]] = None,
 ) -> TargetProfile:
     """Fingerprint a target LLM endpoint and return its TargetProfile."""
     return await Fingerprinter().run(
-        target_url, api_key, model, endpoint_format, request_template, response_path
+        target_url,
+        api_key,
+        model,
+        endpoint_format,
+        request_template,
+        response_path,
+        system_prompt,
+        extra_headers,
     )

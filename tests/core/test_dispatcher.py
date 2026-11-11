@@ -155,7 +155,9 @@ async def test_dispatch_captures_latency(httpx_mock, session, evidence_dir) -> N
     assert exchange.latency_ms >= 0
 
 
-async def test_dispatch_captures_response_body(httpx_mock, session, evidence_dir) -> None:
+async def test_dispatch_captures_response_body(
+    httpx_mock, session, evidence_dir
+) -> None:
     httpx_mock.add_response(json=_OPENAI_BODY)
     exchange = await _make_dispatcher(evidence_dir).dispatch(_payload(), session)
     assert "gpt-4o" in exchange.response_body
@@ -170,7 +172,7 @@ async def test_exchange_written_to_ndjson(httpx_mock, session, evidence_dir) -> 
     await _make_dispatcher(evidence_dir).dispatch(_payload(), session)
     evidence = evidence_dir / _SCAN_ID / "evidence.ndjson"
     assert evidence.exists()
-    lines = [l for l in evidence.read_text().splitlines() if l.strip()]
+    lines = [line for line in evidence.read_text().splitlines() if line.strip()]
     assert len(lines) == 1
     record = json.loads(lines[0])
     assert record["scan_id"] == _SCAN_ID
@@ -185,13 +187,8 @@ async def test_multiple_dispatches_append_to_ndjson(
     d = _make_dispatcher(evidence_dir)
     for _ in range(3):
         await d.dispatch(_payload(), session)
-    lines = [
-        l
-        for l in (evidence_dir / _SCAN_ID / "evidence.ndjson")
-        .read_text()
-        .splitlines()
-        if l.strip()
-    ]
+    text = (evidence_dir / _SCAN_ID / "evidence.ndjson").read_text()
+    lines = [line for line in text.splitlines() if line.strip()]
     assert len(lines) == 3
 
 

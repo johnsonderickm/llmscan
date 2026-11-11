@@ -1,4 +1,4 @@
-# LLM03 Insecure Output Handling — built-in template library.
+# LLM05 Improper Output Handling — built-in template library.
 # Probes whether the model generates output containing XSS, SQLi, or
 # command-injection payloads that would be dangerous if rendered/executed.
 templates:

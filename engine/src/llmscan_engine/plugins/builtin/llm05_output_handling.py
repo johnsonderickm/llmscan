@@ -77,7 +77,7 @@ _REFUSAL_SIGNALS: list[str] = [
 
 def _all_templates() -> list[str]:
     """Merge YAML templates with Garak probes; fall back to built-in list."""
-    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm03_output.yaml")
+    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm05_output_handling.yaml")
     base = yaml_tpl if yaml_tpl else list(_TEMPLATES)
     garak: list[str] = []
     for mod in ("garak.probes.xss", "garak.probes.sqli"):
@@ -86,25 +86,25 @@ def _all_templates() -> list[str]:
     return base + [p for p in garak if p not in seen]
 
 
-class LLM03InsecureOutput(AttackPlugin):
+class LLM05OutputHandling(AttackPlugin):
     """
-    LLM03 — Insecure Output Handling.
+    LLM05 — Improper Output Handling (OWASP LLM Top 10, 2025 numbering).
     Probes whether the model generates XSS, SQL injection, or command-injection
     payloads that would be dangerous if passed to a browser, database, or OS.
     """
 
-    _PLUGIN_ID = "llm03_output"
+    _PLUGIN_ID = "llm05_output_handling"
 
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata."""
         return PluginMetadata(
             id=self._PLUGIN_ID,
-            name="LLM03 Insecure Output Handling",
+            name="LLM05 Improper Output Handling",
             version="1.0.0",
-            owasp_id="LLM03",
+            owasp_id="LLM05",
             mitre_atlas_id="AML.T0043",
             severity_weight=8.5,
-            tags=["xss", "sqli", "injection", "output", "llm03"],
+            tags=["xss", "sqli", "injection", "output", "llm05"],
         )
 
     async def payload_generator(

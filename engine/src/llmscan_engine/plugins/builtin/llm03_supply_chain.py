@@ -91,7 +91,7 @@ _REFUSAL_SIGNALS: list[str] = [
 
 def _all_templates() -> list[str]:
     """Merge YAML templates with Garak probes; fall back to built-in list."""
-    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm05_supply.yaml")
+    yaml_tpl = load_yaml_templates(_TEMPLATES_DIR / "llm03_supply_chain.yaml")
     base = yaml_tpl if yaml_tpl else list(_TEMPLATES)
     garak: list[str] = []
     for mod in ("garak.probes.knownbadsignatures",):
@@ -100,25 +100,31 @@ def _all_templates() -> list[str]:
     return base + [p for p in garak if p not in seen]
 
 
-class LLM05SupplyChain(AttackPlugin):
+class LLM03SupplyChain(AttackPlugin):
     """
-    LLM05 — Supply Chain Vulnerabilities.
+    LLM03 — Supply Chain (OWASP LLM Top 10, 2025 numbering).
     Probes for base model identity, training data sources, fine-tuning details,
     and known backdoor trigger phrases that reveal supply-chain exposure.
+
+    NOTE: this plugin's current self-disclosure probing predates the 2025
+    rename and is only a partial fit for the real 2025 "Supply Chain"
+    category (compromised third-party models/datasets/plugins) — this is
+    relabelled here (Phase A) and reframed into genuine provenance
+    verification in a later phase.
     """
 
-    _PLUGIN_ID = "llm05_supply"
+    _PLUGIN_ID = "llm03_supply_chain"
 
     def metadata(self) -> PluginMetadata:
         """Return plugin metadata."""
         return PluginMetadata(
             id=self._PLUGIN_ID,
-            name="LLM05 Supply Chain Vulnerabilities",
+            name="LLM03 Supply Chain",
             version="1.0.0",
-            owasp_id="LLM05",
+            owasp_id="LLM03",
             mitre_atlas_id="AML.T0010",
             severity_weight=7.0,
-            tags=["supply-chain", "model-identity", "training-data", "llm05"],
+            tags=["supply-chain", "model-identity", "training-data", "llm03"],
         )
 
     async def payload_generator(

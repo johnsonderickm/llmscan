@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from llmscan_engine.core.dispatcher import Exchange
+from llmscan_engine.core.taxonomy import ALL_OWASP_IDS
 from llmscan_engine.db.models import Finding, Scan
 from llmscan_engine.plugins.registry import all_plugins, init_registry
 from llmscan_engine.reports.compliance_mapping import compliance_refs
@@ -27,7 +28,7 @@ ReportFormat = Literal["html", "pdf"]
 
 _TEMPLATES_DIR = Path(__file__).parent / "templates"
 
-_ALL_OWASP_IDS = [f"LLM{i:02d}" for i in range(1, 11)]
+_ALL_OWASP_IDS = ALL_OWASP_IDS
 
 _SLA_DAYS = {"Critical": 7, "High": 30, "Medium": 90, "Low": 180}
 
@@ -214,7 +215,7 @@ class ReportGenerator:
                 {item["row"].owasp_id for item in enriched}
             )
             context["compliance_gaps"] = [
-                {"owasp_id": owasp_id, **compliance_refs(owasp_id)}
+                {"owasp_id": owasp_id, **compliance_refs(owasp_id).model_dump()}
                 for owasp_id in context["affected_categories"]
             ]
             context["impact_narrative"] = _impact_narrative(enriched)

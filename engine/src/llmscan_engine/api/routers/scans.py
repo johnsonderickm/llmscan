@@ -41,6 +41,8 @@ async def create_scan(
             endpoint_format=body.endpoint_format,
             request_template=body.request_template,
             response_path=body.response_path,
+            system_prompt=body.system_prompt,
+            extra_headers=body.headers,
         )
     )
     register_task(scan.id, task)

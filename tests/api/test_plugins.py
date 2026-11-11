@@ -43,7 +43,8 @@ async def client(session):
 
     app.dependency_overrides[get_session] = _override_session
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
         yield c
 
 
@@ -62,9 +63,13 @@ async def test_list_plugins_schema(client):
 
 
 async def test_list_plugins_owasp_coverage(client):
+    """As of the Phase A (OWASP 2025) rename, LLM04 (Data and Model Poisoning)
+    and LLM08 (Vector and Embedding Weaknesses) have no plugin yet —
+    llm04_poisoning and llm08_rag land in a later phase. Every other 2025
+    category has at least one plugin."""
     resp = await client.get("/api/plugins")
     owasp_ids = {p["owasp_id"] for p in resp.json()}
-    expected = {f"LLM0{i}" for i in range(1, 10)} | {"LLM10"}
+    expected = {"LLM01", "LLM02", "LLM03", "LLM05", "LLM06", "LLM07", "LLM09", "LLM10"}
     assert expected == owasp_ids
 
 

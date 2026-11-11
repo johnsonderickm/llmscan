@@ -199,6 +199,16 @@ def scan(
         help="Custom format only: dot-path to the reply text in the JSON "
         'response, e.g. "response" or "choices.0.message.content"',
     ),
+    system_prompt: Optional[str] = typer.Option(
+        None,
+        "--system-prompt",
+        help="System prompt sent with every probe/attack request",
+    ),
+    header: list[str] = typer.Option(
+        [],
+        "--header",
+        help='Extra request header as "Key: Value" (repeatable)',
+    ),
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Log payloads only; send no HTTP requests"
     ),
@@ -250,6 +260,16 @@ def scan(
     api_key = _get_api_key(target, key)
     use_garak_override = False if no_garak else None
 
+    extra_headers: dict[str, str] = {}
+    for raw in header:
+        name, sep, value = raw.partition(":")
+        if not sep:
+            console.print(
+                f'[red]Invalid --header {raw!r}, expected "Key: Value"[/red]'
+            )
+            raise typer.Exit(code=1)
+        extra_headers[name.strip()] = value.strip()
+
     async def _run() -> tuple[Scan, list[Finding]]:
         await init_db()
         clear_registry()
@@ -257,7 +277,14 @@ def scan(
 
         if json_output:
             target_profile = await fingerprint(
-                target, api_key, model, endpoint_format, request_template, response_path
+                target,
+                api_key,
+                model,
+                endpoint_format,
+                request_template,
+                response_path,
+                system_prompt,
+                extra_headers,
             )
         else:
             with console.status("Fingerprinting target endpoint…"):
@@ -268,6 +295,8 @@ def scan(
                     endpoint_format,
                     request_template,
                     response_path,
+                    system_prompt,
+                    extra_headers,
                 )
 
         registered = all_plugins()

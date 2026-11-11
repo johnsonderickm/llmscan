@@ -19,6 +19,8 @@ class ScanCreate(BaseModel):
     endpoint_format: str = "openai"
     request_template: Optional[str] = None
     response_path: Optional[str] = None
+    system_prompt: Optional[str] = None
+    headers: Optional[dict[str, str]] = None
 
 
 class ScanRead(BaseModel):
